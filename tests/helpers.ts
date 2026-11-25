@@ -1,0 +1,36 @@
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
+import { Scene } from "@babylonjs/core/scene";
+import HavokPhysics from "@babylonjs/havok";
+import { PhysicsWorld } from "../src/physics/PhysicsWorld";
+import { MaterialLibrary } from "../src/render/MaterialLibrary";
+import { ObjectFactory } from "../src/objects/ObjectFactory";
+import { TestChamber } from "../src/environments/TestChamber";
+
+let havok: unknown;
+
+/** Headless lab: real Havok WASM + Babylon NullEngine (no GPU). */
+export async function createLab(populate = false) {
+  if (!havok) {
+    const wasmPath = createRequire(import.meta.url).resolve("@babylonjs/havok/lib/esm/HavokPhysics.wasm");
+    havok = await HavokPhysics({ wasmBinary: new Uint8Array(readFileSync(wasmPath)).buffer });
+  }
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const world = new PhysicsWorld(scene, havok);
+  const materials = new MaterialLibrary(scene);
+  const env = new TestChamber();
+  env.build({ scene, materials });
+  const factory = new ObjectFactory(scene, materials);
+  if (populate) env.populate(factory);
+  return { engine, scene, world, materials, env, factory, dispose: () => { scene.dispose(); engine.dispose(); } };
+}
+
+export function simulate(world: PhysicsWorld, seconds: number, each?: (dt: number) => void): void {
+  const dt = 1 / 60;
+  for (let t = 0; t < seconds; t += dt) {
+    each?.(dt);
+    world.step(dt);
+  }
+}
