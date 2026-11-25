@@ -1,12 +1,13 @@
 import "@babylonjs/core/Rendering/depthRendererSceneComponent";
 import "@babylonjs/core/PostProcesses/RenderPipeline/postProcessRenderPipelineManagerSceneComponent";
 import "@babylonjs/core/Layers/effectLayerSceneComponent";
+import "@babylonjs/core/Rendering/boundingBoxRenderer";
 import { DefaultRenderingPipeline } from "@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline";
 import { ImageProcessingConfiguration } from "@babylonjs/core/Materials/imageProcessingConfiguration";
 import { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
 import { ReflectionProbe } from "@babylonjs/core/Probes/reflectionProbe";
 import { RenderTargetTexture } from "@babylonjs/core/Materials/Textures/renderTargetTexture";
-import { Color4 } from "@babylonjs/core/Maths/math.color";
+import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
 import type { Camera } from "@babylonjs/core/Cameras/camera";
 import type { Scene } from "@babylonjs/core/scene";
 import type { QualitySettings } from "../core/config";
@@ -25,6 +26,11 @@ export class RenderPipeline {
     scene.clearColor = new Color4(0.01, 0.012, 0.018, 1);
     scene.fogMode = 2; // Scene.FOGMODE_EXP2
     scene.fogDensity = 0.008;
+
+    // Selection outline (bounding box of the inspected object)
+    const bbox = scene.getBoundingBoxRenderer();
+    bbox.frontColor = new Color3(0.35, 0.85, 1);
+    bbox.showBackLines = false;
 
     this.pipeline = new DefaultRenderingPipeline("momentum-pipeline", true, scene, [camera]);
     this.pipeline.fxaaEnabled = true;

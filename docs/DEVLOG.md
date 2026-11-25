@@ -1,5 +1,32 @@
 # Development log
 
+## 2026-11-25 - Phase 2: Physics systems
+
+### Implemented
+- **Selection and inspector.** E selects the targeted (or held) object. The inspector shows values read from Havok every 100 ms: speed, velocity vector, momentum, kinetic energy and its rotational part, angular speed, height, last and peak contact impulse. The selected object gets a bounding-box outline and a velocity arrow.
+- **Property editing.** Mass (0.1 kg to 20 t, logarithmic), friction, restitution, linear and angular damping, gravity factor, static / dynamic. Each maps to one Havok setting and is clamped in `ObjectFactory.setProps`.
+- **Edit mode (Tab).** Frees the mouse without leaving the lab; the simulation keeps running. Tab or a click on the viewport returns to play.
+- **World gravity.** Vertical gravity from -25 to +25 m/s^2 with Earth / Moon / Zero / Reverse presets; sleeping bodies are woken so they respond. Reset restores Earth gravity.
+- **Force tool (Q).** Hold LMB for a continuous force at the exact point aimed at (50 N to 25 kN, scroll to change); RMB strikes with an impulse equal to that force acting for 0.25 s. Off-centre application produces torque through the engine.
+- **Duplicate (C)** copies shape, size, colour and all properties. **Delete (X)** now also works on static objects.
+- HUD: tool chip with the force setting, compact inspector, edit-mode banner, updated control guide, masses shown in kg or tonnes.
+
+### Tested
+- `npm test`: 28 tests passing (15 from Phase 1 plus 13 new), all against real Havok. New checks include: unit inertia of a sphere (2/5 r^2) and cube (a^2/6); friction changing slide distance; restitution changing rebound height; gravity factor 0 and -1; static toggle; damping; gravity change waking sleeping bodies; duplication; momentum = m v; kinetic energy gained in a fall = m g h within 4 %; rolling sphere rotational energy = 2/5 of translational; constant force giving v = F t / m within 3 %; centred vs off-centre impulse (same linear momentum, spin only when off-centre); contact impulse on landing >= m v.
+- Production build in headless Chrome (WebGL 2, software rendering) with real keyboard and mouse events: select, enter edit mode, drag the mass slider (engine mass confirmed changed), gravity preset, duplicate button, return to play with pointer lock, switch tool, change force level, hold force, duplicate and reselect by key, reset. Phase 1 scenarios rerun as regression. No console errors or warnings.
+
+### Bugs found and fixed during the phase
+- A first attempt to "correct" inertia when editing mass was wrong: Havok stores inertia per unit mass, so the tensor already follows mass. The energy tests exposed this; the code now writes mass only and `ObjectState` multiplies by mass.
+- Mass over 1000 kg was displayed as "kkg".
+- The inspector did not fit a 720 px high window; rows were made single-line.
+
+### Known limitations
+- The selection outline is a one-pixel bounding box and is subtle on bright objects.
+- The force arrow points along the view direction, so from the player's eye it is seen almost end-on.
+- Property sliders need edit mode (Tab); there is no in-world picking with the free cursor yet.
+- Multi-select and a dedicated torque tool are deferred to Phase 3.
+- WebGPU and performance on the target laptop remain unverified (see Phase 1 entry).
+
 ## 2026-11-25 - Phase 1: Foundation
 
 ### Starting point

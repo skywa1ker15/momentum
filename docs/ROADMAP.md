@@ -5,17 +5,15 @@ Each phase ends with: typecheck, automated tests, a run of the production build 
 ## Phase 1 - Foundation (complete)
 Project architecture, rendering engine, Test Chamber 01, first-person player, camera, basic physics interactions (spawn, grab, carry, throw, push, delete), pause / time scale / reset, HUD and control guide, quality presets.
 
-## Phase 2 - Physics systems
-- Inspector panel: live mass, velocity, speed, momentum (p = m v), kinetic energy, angular velocity, read from the engine.
-- Edit properties in real time: mass, friction, restitution, linear / angular damping, gravity factor, motion type (dynamic / static).
-- Force and impulse tools (continuous force, point impulse, torque) with a visual vector overlay.
-- Collision events: contact impulse readout, used later by destruction.
-- Selection model (select, multi-select, duplicate) and tool switching.
-- Exit: every displayed quantity is verified against engine values in tests.
+## Phase 2 - Physics systems (complete)
+Selection and inspector with live engine readouts (speed, velocity, momentum, kinetic energy with rotational part, angular speed, height, contact impulses); real-time editing of mass, friction, restitution, damping, gravity factor and static / dynamic; Force tool (continuous force and impulse at a point); duplication; tool switching; edit mode; velocity vector overlay. Global gravity control (strength, reverse, zero, presets) was brought forward from Phase 3.
+
+Deferred from the original Phase 2 list: multi-select and a dedicated torque tool (off-centre forces already produce torque). Both move to Phase 3 with the construction tools.
 
 ## Phase 3 - Advanced interactions
 - Material laboratory: steel, wood, concrete, glass, rubber, plastic, ice, elastic - density, friction, restitution, hardness, durability; mass derived from density and volume.
-- Gravity laboratory: global gravity vector and strength, reverse, zero-g; local attract / repel fields (inverse-square, clamped); directional gravity zones.
+- Gravity laboratory: arbitrary gravity direction; local attract / repel fields (inverse-square, clamped); directional gravity zones. (Vertical strength, reverse and zero-g already exist.)
+- Multi-select, torque tool.
 - Construction: precise move / rotate, snap, fixed / hinge / ball / slider / spring constraints, motors on hinges.
 - Second environment: Gravity Laboratory. Environment switching.
 

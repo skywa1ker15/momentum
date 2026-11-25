@@ -2,7 +2,7 @@
 
 An advanced 3D physics sandbox set in an experimental laboratory. Built with Babylon.js, Havok Physics, TypeScript and Vite.
 
-**Status:** Phase 1 (Foundation) complete. See [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next and [docs/DEVLOG.md](docs/DEVLOG.md) for what was built and tested.
+**Status:** Phases 1 (Foundation) and 2 (Physics systems) complete. See [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next and [docs/DEVLOG.md](docs/DEVLOG.md) for what was built and tested.
 
 ## Run
 
@@ -20,10 +20,14 @@ npm run preview    # serve the production build
 | --- | --- |
 | W A S D / mouse | Move / look |
 | Shift, Space | Sprint, jump |
-| 1 2 3, then F | Select shape, spawn it |
-| Hold LMB | Grab and carry (scroll to push / pull) |
-| RMB | Throw held object, or push the targeted one |
-| X | Delete targeted object |
+| 1 2 3, then F | Choose shape, spawn it |
+| E | Select / deselect the targeted object for inspection |
+| C | Duplicate the selected or targeted object |
+| X | Delete the targeted or held object |
+| Q | Switch tool: Hand / Force |
+| Hand: hold LMB, scroll, RMB | Grab and carry, push / pull, throw or push |
+| Force: hold LMB, RMB, scroll | Continuous force at the aimed point, impulse strike, change magnitude |
+| Tab | Edit mode: frees the mouse to edit properties and world gravity |
 | P, [ ] | Pause, slower / faster simulation |
 | R | Reset experiment |
 | H | Control guide |

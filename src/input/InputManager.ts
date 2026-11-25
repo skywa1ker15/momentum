@@ -14,8 +14,10 @@ export class InputManager {
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.listen(window, "keydown", (e) => {
       if (!this.locked) {
-        // Allow the few global keys to work from the start overlay too.
-        if (e.code !== "KeyH") return;
+        // Only the global keys work while the pointer is free (start screen, edit mode).
+        if (e.code !== "KeyH" && e.code !== "Tab") return;
+        // Do not steal H from a focused text field.
+        if (e.code === "KeyH" && e.target instanceof HTMLInputElement && e.target.type !== "range" && e.target.type !== "checkbox") return;
       }
       if (e.code === "Tab" || e.code === "Space" || e.code.startsWith("F")) {
         if (e.code !== "F5" && e.code !== "F11" && e.code !== "F12") e.preventDefault();
@@ -58,6 +60,10 @@ export class InputManager {
     result?.catch?.(() => {
       /* user gesture missing or lock denied: the overlay stays up */
     });
+  }
+
+  exitLock(): void {
+    if (this.locked) document.exitPointerLock();
   }
 
   isDown(code: string): boolean {

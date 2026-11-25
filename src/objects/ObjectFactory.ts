@@ -6,7 +6,7 @@ import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { InstancedMesh } from "@babylonjs/core/Meshes/instancedMesh";
 import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
-import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
+import { PhysicsMotionType, PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import type { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import type { Scene } from "@babylonjs/core/scene";
 import { CONFIG } from "../core/config";
@@ -15,8 +15,46 @@ import type { MaterialLibrary } from "../render/MaterialLibrary";
 export type PrimitiveKind = "box" | "sphere" | "cylinder";
 export const PRIMITIVE_KINDS: readonly PrimitiveKind[] = ["box", "sphere", "cylinder"];
 
-/** Phase 1 uses one generic solid. Per-material properties arrive with the material laboratory (Phase 3). */
+/** One generic solid for now. Per-material presets arrive with the material laboratory (Phase 3). */
 const DEFAULT_SOLID = { density: 450, friction: 0.6, restitution: 0.25 };
+
+/** Editable physical properties. Every field maps directly onto a Havok body / shape setting. */
+export interface PhysicalProps {
+  /** kg */
+  mass: number;
+  friction: number;
+  restitution: number;
+  /** 1/s */
+  linearDamping: number;
+  /** 1/s */
+  angularDamping: number;
+  /** Multiplier on world gravity for this body. */
+  gravityFactor: number;
+  /** Static bodies do not move but still collide. */
+  isStatic: boolean;
+}
+
+export const PROP_LIMITS = {
+  mass: { min: 0.1, max: 20000 },
+  friction: { min: 0, max: 2 },
+  restitution: { min: 0, max: 1 },
+  linearDamping: { min: 0, max: 5 },
+  angularDamping: { min: 0, max: 5 },
+  gravityFactor: { min: -2, max: 3 },
+} as const;
+
+/**
+ * Sets a body's mass. Havok stores the inertia tensor per unit mass (for a solid sphere
+ * 2/5 r^2), derived from the collision shape, so the rotational inertia I = m * unitInertia
+ * follows the mass automatically and only the mass needs to be written.
+ */
+function setMass(body: PhysicsBody, mass: number): void {
+  body.setMassProperties({ mass });
+}
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, v));
+}
 
 export interface SpawnOptions {
   kind: PrimitiveKind;
@@ -26,6 +64,8 @@ export interface SpawnOptions {
   colorIndex?: number;
   rotation?: Quaternion;
   linearVelocity?: Vector3;
+  /** Overrides for the default physical properties. */
+  props?: Partial<PhysicalProps>;
 }
 
 export interface SandboxObject {
@@ -34,7 +74,10 @@ export interface SandboxObject {
   mesh: InstancedMesh;
   aggregate: PhysicsAggregate;
   body: PhysicsBody;
-  mass: number;
+  size: Vector3;
+  colorIndex: number;
+  /** Last values applied to the engine. Change them only through ObjectFactory.setProps. */
+  props: PhysicalProps;
 }
 
 const DEFAULT_SIZE: Record<PrimitiveKind, Vector3> = {
@@ -109,10 +152,86 @@ export class ObjectFactory {
     );
     if (opts.linearVelocity) aggregate.body.setLinearVelocity(opts.linearVelocity);
 
-    const obj: SandboxObject = { id, kind: opts.kind, mesh, aggregate, body: aggregate.body, mass };
+    const obj: SandboxObject = {
+      id,
+      kind: opts.kind,
+      mesh,
+      aggregate,
+      body: aggregate.body,
+      size: size.clone(),
+      colorIndex,
+      props: {
+        mass,
+        friction: DEFAULT_SOLID.friction,
+        restitution: DEFAULT_SOLID.restitution,
+        linearDamping: aggregate.body.getLinearDamping(),
+        angularDamping: aggregate.body.getAngularDamping(),
+        gravityFactor: 1,
+        isStatic: false,
+      },
+    };
+    if (opts.props) this.setProps(obj, opts.props);
     this.objects.set(id, obj);
     for (const cb of this.onSpawned) cb(obj);
     return obj;
+  }
+
+  /** Applies property changes to the Havok body / shape. Values are clamped to PROP_LIMITS. */
+  setProps(obj: SandboxObject, change: Partial<PhysicalProps>): void {
+    const p = obj.props;
+    const L = PROP_LIMITS;
+    if (change.mass !== undefined) {
+      p.mass = clamp(change.mass, L.mass.min, L.mass.max);
+      setMass(obj.body, p.mass);
+    }
+    if (change.friction !== undefined || change.restitution !== undefined) {
+      if (change.friction !== undefined) p.friction = clamp(change.friction, L.friction.min, L.friction.max);
+      if (change.restitution !== undefined) p.restitution = clamp(change.restitution, L.restitution.min, L.restitution.max);
+      obj.aggregate.shape.material = { friction: p.friction, restitution: p.restitution };
+    }
+    if (change.linearDamping !== undefined) {
+      p.linearDamping = clamp(change.linearDamping, L.linearDamping.min, L.linearDamping.max);
+      obj.body.setLinearDamping(p.linearDamping);
+    }
+    if (change.angularDamping !== undefined) {
+      p.angularDamping = clamp(change.angularDamping, L.angularDamping.min, L.angularDamping.max);
+      obj.body.setAngularDamping(p.angularDamping);
+    }
+    if (change.gravityFactor !== undefined) {
+      p.gravityFactor = clamp(change.gravityFactor, L.gravityFactor.min, L.gravityFactor.max);
+      obj.body.setGravityFactor(p.gravityFactor);
+    }
+    if (change.isStatic !== undefined && change.isStatic !== p.isStatic) {
+      p.isStatic = change.isStatic;
+      if (p.isStatic) {
+        obj.body.setLinearVelocity(Vector3.Zero());
+        obj.body.setAngularVelocity(Vector3.Zero());
+      }
+      obj.body.setMotionType(p.isStatic ? PhysicsMotionType.STATIC : PhysicsMotionType.DYNAMIC);
+    }
+    this.wake(obj);
+  }
+
+  /** Copies an object (shape, size, colour, properties) at an offset. Null at the object limit. */
+  duplicate(obj: SandboxObject, offset: Vector3): SandboxObject | null {
+    return this.spawn({
+      kind: obj.kind,
+      size: obj.size,
+      colorIndex: obj.colorIndex,
+      position: obj.mesh.position.add(offset),
+      rotation: obj.mesh.rotationQuaternion ?? undefined,
+      props: obj.props,
+    });
+  }
+
+  /** Brings a sleeping body back into the simulation (needed after gravity or property changes). */
+  wake(obj: SandboxObject): void {
+    if (obj.props.isStatic) return;
+    obj.body.applyImpulse(Vector3.ZeroReadOnly as Vector3, obj.mesh.position);
+  }
+
+  wakeAll(): void {
+    for (const obj of this.objects.values()) this.wake(obj);
   }
 
   remove(obj: SandboxObject): void {

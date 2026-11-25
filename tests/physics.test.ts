@@ -45,7 +45,7 @@ describe("physics world", () => {
     const size = new Vector3(1, 0.5, 2);
     const box = lab.factory.spawn({ kind: "box", position: new Vector3(0, 2, 3), size })!;
     expect(primitiveVolume("box", size)).toBeCloseTo(1, 6);
-    expect(box.body.getMassProperties().mass).toBeCloseTo(box.mass, 3);
+    expect(box.body.getMassProperties().mass).toBeCloseTo(box.props.mass, 3);
     expect(primitiveVolume("sphere", new Vector3(1, 1, 1))).toBeCloseTo(Math.PI / 6, 6);
     lab.dispose();
   });

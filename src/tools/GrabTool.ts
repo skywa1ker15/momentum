@@ -73,7 +73,7 @@ export class GrabTool {
     if (!obj) return;
     const c = CONFIG.interaction;
     const toTarget = this.holdPoint.subtract(obj.body.getObjectCenterWorld());
-    const strength = Math.min(1, c.carryStrengthMass / obj.mass);
+    const strength = Math.min(1, c.carryStrengthMass / obj.props.mass);
     const vel = toTarget.scale(c.holdStiffness * strength);
     const speed = vel.length();
     if (speed > c.holdMaxSpeed) vel.scaleInPlace(c.holdMaxSpeed / speed);

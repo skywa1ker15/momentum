@@ -1,5 +1,6 @@
 import "./styles.css";
 import type { PrimitiveKind } from "../objects/ObjectFactory";
+import { Inspector } from "./Inspector";
 
 export interface HudStats {
   fps: number;
@@ -21,10 +22,14 @@ const ICONS: Record<PrimitiveKind, string> = {
 
 const CONTROLS: Array<[string, Array<[string, string]>]> = [
   ["Movement", [["W A S D", "Move"], ["Mouse", "Look"], ["Shift", "Sprint"], ["Space", "Jump"]]],
-  ["Objects", [["1 2 3", "Select shape"], ["F", "Spawn selected shape"], ["Hold LMB", "Grab and carry"], ["Scroll", "Push / pull held object"], ["RMB", "Throw held / push target"], ["X", "Delete target"]]],
+  ["Objects", [["1 2 3", "Choose shape"], ["F", "Spawn chosen shape"], ["E", "Select / deselect for inspection"], ["C", "Duplicate selected or targeted"], ["X", "Delete targeted or held"]]],
+  ["Hand tool", [["Hold LMB", "Grab and carry"], ["Scroll", "Push / pull held object"], ["RMB", "Throw held / push target"]]],
+  ["Force tool", [["Hold LMB", "Apply continuous force at the point aimed at"], ["RMB", "Strike with an impulse"], ["Scroll", "Change force magnitude"]]],
   ["Simulation", [["P", "Pause / resume"], ["[  ]", "Slower / faster"], ["R", "Reset experiment"]]],
-  ["Interface", [["H", "Toggle this guide"], ["F2", "Cycle graphics quality"], ["Esc", "Release mouse"]]],
+  ["Interface", [["Q", "Switch tool"], ["Tab", "Edit mode: free the mouse to edit properties"], ["H", "Toggle this guide"], ["F2", "Cycle graphics quality"], ["Esc", "Release mouse"]]],
 ];
+
+export type HudMode = "menu" | "play" | "edit";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, html?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -36,6 +41,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, h
 /** DOM overlay. Purely presentational: reads state passed in, raises intent through callbacks. */
 export class Hud {
   onEnter: (() => void) | null = null;
+  readonly inspector: Inspector;
 
   private readonly root: HTMLElement;
   private readonly overlay: HTMLElement;
@@ -44,6 +50,8 @@ export class Hud {
   private readonly targetLabel: HTMLElement;
   private readonly simPill: HTMLElement;
   private readonly toastEl: HTMLElement;
+  private readonly toolChip: HTMLElement;
+  private readonly editBanner: HTMLElement;
   private readonly stat: Record<string, HTMLElement> = {};
   private readonly slots = new Map<PrimitiveKind, HTMLElement>();
   private toastTimer = 0;
@@ -80,8 +88,14 @@ export class Hud {
       this.slots.set(kind, slot);
       hotbar.appendChild(slot);
     });
+    this.toolChip = el("div", "tool-chip");
+    hotbar.append(el("div", "hotbar-divider"), this.toolChip);
     hotbar.appendChild(el("div", "hotbar-hint", "<kbd>F</kbd> spawn &nbsp; <kbd>H</kbd> controls"));
     this.root.appendChild(hotbar);
+
+    this.inspector = new Inspector(this.root);
+    this.editBanner = el("div", "panel edit-banner", "Edit mode &nbsp;·&nbsp; click the viewport or press <kbd>Tab</kbd> to return");
+    this.root.appendChild(this.editBanner);
 
     this.toastEl = el("div", "panel toast");
     this.root.appendChild(this.toastEl);
@@ -109,7 +123,7 @@ export class Hud {
     card.append(
       el("div", "start-eyebrow", "Experimental physics facility"),
       el("h1", undefined, "MOMENTUM"),
-      el("p", undefined, "A sandbox laboratory. Spawn, carry, throw and collide rigid bodies simulated by the Havok engine."),
+      el("p", undefined, "A sandbox laboratory. Spawn, carry, throw and push rigid bodies simulated by the Havok engine, then inspect and edit their physical properties."),
     );
     const enter = el("button", "enter-button", "Enter laboratory");
     enter.type = "button";
@@ -119,9 +133,17 @@ export class Hud {
     this.root.appendChild(this.overlay);
   }
 
-  setLocked(locked: boolean): void {
-    this.overlay.classList.toggle("hidden", locked);
-    this.root.classList.toggle("in-play", locked);
+  setMode(mode: HudMode): void {
+    this.overlay.classList.toggle("hidden", mode !== "menu");
+    this.root.classList.toggle("in-play", mode === "play");
+    this.root.classList.toggle("edit-mode", mode === "edit");
+    this.inspector.setEditable(mode === "edit");
+  }
+
+  /** `detail` is the tool's current setting, e.g. the force magnitude. */
+  setTool(name: string, detail: string): void {
+    const html = `<kbd>Q</kbd><span class="tool-name">${name}</span>${detail ? `<span class="tool-detail">${detail}</span>` : ""}`;
+    if (this.toolChip.innerHTML !== html) this.toolChip.innerHTML = html;
   }
 
   toggleGuide(): void {

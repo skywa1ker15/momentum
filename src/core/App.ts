@@ -12,8 +12,16 @@ import type { LabEnvironment } from "../environments/Environment";
 import { ObjectFactory, PRIMITIVE_KINDS, type PrimitiveKind, type SandboxObject } from "../objects/ObjectFactory";
 import { PlayerController, type MoveIntent } from "../player/PlayerController";
 import { InputManager } from "../input/InputManager";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { GrabTool } from "../tools/GrabTool";
-import { Hud } from "../ui/Hud";
+import { ForceTool } from "../tools/ForceTool";
+import { Selection } from "../tools/Selection";
+import { readState } from "../objects/ObjectState";
+import { VectorOverlay } from "../render/VectorOverlay";
+import { Hud, type HudMode } from "../ui/Hud";
+import { mass as formatMass, si } from "../ui/format";
+
+export type ToolId = "hand" | "force";
 
 const QUALITY_KEY = "momentum.quality";
 const IDLE: MoveIntent = { forward: 0, strafe: 0, sprint: false, jump: false };
@@ -35,7 +43,11 @@ export class App {
   readonly factory: ObjectFactory;
   readonly player: PlayerController;
   readonly grab: GrabTool;
+  readonly force: ForceTool;
+  readonly selection: Selection;
   readonly environment: LabEnvironment;
+  tool: ToolId = "hand";
+  mode: HudMode = "menu";
   quality: QualityLevel = loadQuality();
   selectedKind: PrimitiveKind = "box";
 
@@ -44,6 +56,8 @@ export class App {
   private readonly hud: Hud;
   private readonly lighting: Lighting;
   private readonly pipeline: RenderPipeline;
+  private readonly overlay: VectorOverlay;
+  private pendingEdit = false;
   private frame = 0;
   private baseFov = 1.12;
 
@@ -80,15 +94,37 @@ export class App {
 
     this.player = new PlayerController(this.scene, this.environment.spawnPoint, this.environment.spawnYaw);
     this.grab = new GrabTool(this.world, this.factory);
+    this.force = new ForceTool(this.world, this.factory);
+    this.selection = new Selection(this.factory);
+    this.overlay = new VectorOverlay(this.scene);
 
     this.input = new InputManager(canvas);
     this.hud = new Hud(uiRoot, this.environment.name, PRIMITIVE_KINDS);
     this.hud.setSelected(this.selectedKind);
     this.hud.onEnter = () => this.input.requestLock();
     this.input.onLockChange = (locked) => {
-      this.hud.setLocked(locked);
-      if (!locked) this.grab.release();
+      this.mode = locked ? "play" : this.pendingEdit ? "edit" : "menu";
+      this.pendingEdit = false;
+      this.hud.setMode(this.mode);
+      if (!locked) {
+        this.grab.release();
+        this.force.end();
+      }
     };
+    this.hud.setMode(this.mode);
+
+    const inspector = this.hud.inspector;
+    this.selection.onChange = (obj) => inspector.setObject(obj);
+    inspector.onPropChange = (change) => {
+      const obj = this.selection.current;
+      if (obj) this.factory.setProps(obj, change);
+    };
+    inspector.onGravityChange = (y) => this.setGravity(y);
+    inspector.onDuplicate = () => this.duplicateSelected();
+    inspector.onDelete = () => {
+      if (this.selection.current) this.factory.remove(this.selection.current);
+    };
+    inspector.onDeselect = () => this.selection.select(null);
     canvas.addEventListener("click", () => this.input.requestLock());
 
     this.applyQuality();
@@ -129,8 +165,54 @@ export class App {
     this.world.timeScale = scales[next];
   }
 
+  /** Object under the crosshair, dynamic or static. */
+  pickObject(): SandboxObject | null {
+    const eye = this.player.eyePosition;
+    const hit = this.world.raycast(eye, eye.add(this.player.viewDirection.scale(CONFIG.force.reach)));
+    return hit ? this.factory.fromBody(hit.body) : null;
+  }
+
+  /** Selects the held or targeted object for inspection; deselects when it is already selected or nothing is targeted. */
+  selectTarget(): void {
+    const obj = this.grab.held ?? this.pickObject();
+    this.selection.select(obj === this.selection.current ? null : obj);
+  }
+
+  duplicateSelected(): SandboxObject | null {
+    const src = this.selection.current ?? this.grab.held ?? this.pickObject();
+    if (!src) return null;
+    const lift = (src.kind === "box" ? src.size.y : src.kind === "sphere" ? src.size.x : src.size.y) + 0.15;
+    const copy = this.factory.duplicate(src, new Vector3(0, lift, 0));
+    this.hud.toast(copy ? `Duplicated ${src.kind} #${src.id}` : `Object limit reached (${CONFIG.limits.maxObjects})`);
+    return copy;
+  }
+
+  setTool(tool: ToolId): void {
+    if (tool === this.tool) return;
+    this.grab.release();
+    this.force.end();
+    this.tool = tool;
+  }
+
+  /** Vertical world gravity in m/s^2 (negative is down). Sleeping bodies are woken so they respond. */
+  setGravity(y: number): void {
+    const g = Math.min(CONFIG.gravity.max, Math.max(CONFIG.gravity.min, y));
+    this.world.setGravity(new Vector3(0, g, 0));
+    this.factory.wakeAll();
+    this.hud.inspector.setGravity(g);
+  }
+
+  /** Frees the mouse so the inspector can be edited; the simulation keeps running. */
+  enterEditMode(): void {
+    if (!this.input.locked) return;
+    this.pendingEdit = true;
+    this.input.exitLock();
+  }
+
   resetExperiment(): void {
     this.grab.release();
+    this.force.end();
+    this.setGravity(CONFIG.physics.gravity);
     this.factory.clear();
     this.environment.populate(this.factory);
     this.player.teleport(this.environment.spawnPoint, this.environment.spawnYaw);
@@ -151,7 +233,7 @@ export class App {
   }
 
   deleteTarget(): boolean {
-    const obj = this.grab.held ?? this.grab.target(this.player.eyePosition, this.player.viewDirection);
+    const obj = this.grab.held ?? this.pickObject();
     if (!obj) return false;
     this.factory.remove(obj);
     return true;
@@ -165,6 +247,10 @@ export class App {
     const locked = input.locked;
 
     if (input.wasPressed("KeyH")) this.hud.toggleGuide();
+    if (input.wasPressed("Tab")) {
+      if (locked) this.enterEditMode();
+      else if (this.mode === "edit") input.requestLock();
+    }
 
     let intent = IDLE;
     if (locked) {
@@ -184,13 +270,27 @@ export class App {
     const eye = this.player.eyePosition;
     const dir = this.player.viewDirection;
     if (this.grab.held) this.grab.setHoldPoint(eye, dir);
+    if (this.force.target) this.force.setDirection(dir);
 
     this.world.step(dt);
 
     if (++this.frame % 30 === 0) this.factory.cullOutOfBounds();
 
-    const target = this.grab.held ?? (locked ? this.grab.target(eye, dir) : null);
-    this.hud.setTarget(target ? `${target.kind} · ${target.mass.toFixed(1)} kg` : null, this.grab.held !== null);
+    const active = this.grab.held ?? this.force.target;
+    const target = active ?? (locked ? this.pickObject() : null);
+    this.hud.setTarget(target ? `${target.kind} · ${formatMass(target.props.mass)}${target.props.isStatic ? " · static" : ""}` : null, active !== null);
+    this.hud.setTool(this.tool, this.tool === "force" ? `${si(this.force.force, "N")} · ${si(this.force.impulse, "N·s")}` : "");
+
+    const selected = this.selection.current;
+    if (selected) {
+      const state = readState(selected);
+      this.hud.inspector.updateLive(state, { last: this.selection.lastImpact, peak: this.selection.peakImpact, contacts: this.selection.contacts }, performance.now());
+      this.overlay.setVelocity(state.position, state.velocity);
+    } else {
+      this.overlay.setVelocity(null);
+    }
+    const forcePoint = this.force.applicationPoint();
+    this.overlay.setForce(forcePoint, this.force.forceDirection, (this.force.level + 1) / CONFIG.force.magnitudes.length);
     this.hud.update(
       {
         fps: this.engine.getFps(),
@@ -219,10 +319,20 @@ export class App {
       if (input.wasPressed(`Digit${i + 1}`)) this.selectKind(kind);
     });
     if (input.wasPressed("KeyF")) this.spawnSelected();
-    if (input.wasPressed("Mouse0")) this.grab.tryGrab(eye, dir);
-    if (input.wasReleased("Mouse0")) this.grab.release();
-    if (input.wasPressed("Mouse2")) this.grab.throwOrPush(eye, dir);
-    if (input.wheel !== 0 && this.grab.held) this.grab.adjustDistance(input.wheel);
+    if (input.wasPressed("KeyQ")) this.setTool(this.tool === "hand" ? "force" : "hand");
+    if (this.tool === "hand") {
+      if (input.wasPressed("Mouse0")) this.grab.tryGrab(eye, dir);
+      if (input.wasReleased("Mouse0")) this.grab.release();
+      if (input.wasPressed("Mouse2")) this.grab.throwOrPush(eye, dir);
+      if (input.wheel !== 0 && this.grab.held) this.grab.adjustDistance(input.wheel);
+    } else {
+      if (input.wasPressed("Mouse0")) this.force.begin(eye, dir);
+      if (input.wasReleased("Mouse0")) this.force.end();
+      if (input.wasPressed("Mouse2")) this.force.strike(eye, dir);
+      if (input.wheel !== 0) this.force.adjustLevel(-input.wheel);
+    }
+    if (input.wasPressed("KeyE")) this.selectTarget();
+    if (input.wasPressed("KeyC")) this.duplicateSelected();
     if (input.wasPressed("KeyX") || input.wasPressed("Delete")) this.deleteTarget();
     if (input.wasPressed("KeyP")) this.togglePause();
     if (input.wasPressed("BracketLeft")) this.stepTimeScale(-1);

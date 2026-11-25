@@ -102,7 +102,7 @@ describe("grab tool", () => {
     grab.throwOrPush(eye, side);
     expect(grab.held).toBeNull();
     lab.world.step(1 / 60);
-    const expectedSpeed = CONFIG.interaction.throwImpulse / crate.mass;
+    const expectedSpeed = CONFIG.interaction.throwImpulse / crate.props.mass;
     expect(crate.body.getLinearVelocity().x).toBeGreaterThan(expectedSpeed * 0.9);
     expect(crate.body.getLinearVelocity().x).toBeLessThan(expectedSpeed * 1.1);
     lab.dispose();

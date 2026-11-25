@@ -39,6 +39,24 @@ export const CONFIG = {
     throwImpulse: 1400,
     spawnDistance: 2.6,
   },
+  force: {
+    /** Selectable force magnitudes, N. */
+    magnitudes: [50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000] as readonly number[],
+    defaultLevel: 4,
+    /** An impulse strike equals the selected force acting for this long (s). */
+    impulseDuration: 0.25,
+    reach: 30,
+  },
+  gravity: {
+    min: -25,
+    max: 25,
+    presets: [
+      ["Earth", -9.81],
+      ["Moon", -1.62],
+      ["Zero", 0],
+      ["Reverse", 9.81],
+    ] as ReadonlyArray<readonly [string, number]>,
+  },
 } as const;
 
 export type QualityLevel = "low" | "medium" | "high";
