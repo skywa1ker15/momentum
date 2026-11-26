@@ -16,6 +16,7 @@ const menu = app.hud.menu;
   menu.onEnvironment = (id) => {
     app.loadEnvironment(id);
     menu.setStatus("Environment loaded. Press Z in the lab to undo.");
+    menu.onEnter?.(); // the click is a user gesture, so go straight into the lab
   };
   menu.onSettings = (change) => app.updateSettings(change);
   menu.onResetHints = () => {
@@ -30,6 +31,7 @@ const menu = app.hud.menu;
   menu.onLoad = (slot) => {
     const result = app.loadExperiment(readSlot(slot));
     menu.setStatus(result.ok ? `${result.message} Press Z in the lab to undo.` : result.message, !result.ok);
+    if (result.ok) menu.onEnter?.();
   };
   menu.onDeleteSlot = (slot) => {
     clearSlot(slot);

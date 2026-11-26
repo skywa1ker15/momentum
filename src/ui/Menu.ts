@@ -37,6 +37,7 @@ export class Menu {
   readonly root: HTMLElement;
   private readonly tabs = new Map<Tab, { button: HTMLButtonElement; panel: HTMLElement }>();
   private readonly enterButton: HTMLButtonElement;
+  private readonly navEnter: HTMLButtonElement;
   private readonly envCards = new Map<string, HTMLElement>();
   private readonly slotRows: Array<{ info: HTMLElement; load: HTMLButtonElement; remove: HTMLButtonElement }> = [];
   private readonly status: HTMLElement;
@@ -58,6 +59,14 @@ export class Menu {
     const nav = el("nav", "menu-nav");
     nav.append(el("div", "menu-brand", "MOMENTUM"));
     card.appendChild(nav);
+    // Always-visible way back into the lab, from any tab.
+    this.navEnter = el("button", "nav-enter", "Enter laboratory");
+    this.navEnter.type = "button";
+    this.navEnter.addEventListener("click", () => this.onEnter?.());
+    // Clicking the dimmed area around the card also returns to the lab.
+    this.root.addEventListener("click", (e) => {
+      if (e.target === this.root) this.onEnter?.();
+    });
     const content = el("div", "menu-content");
     card.appendChild(content);
 
@@ -213,6 +222,7 @@ export class Menu {
     set.appendChild(hintsRow);
     set.appendChild(el("p", "menu-note", "Settings are saved in this browser. Quality can also be cycled in the lab with F2."));
 
+    nav.appendChild(this.navEnter);
     this.show("home");
   }
 
@@ -227,6 +237,7 @@ export class Menu {
   /** After the first entry the home button resumes instead of entering. */
   setResumable(resumable: boolean): void {
     this.enterButton.textContent = resumable ? "Resume" : "Enter laboratory";
+    this.navEnter.textContent = resumable ? "▶ Resume" : "▶ Enter laboratory";
   }
 
   show(tab: Tab): void {

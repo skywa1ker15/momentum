@@ -218,3 +218,8 @@ The repository `skywa1ker15/momentum` was empty and no Vercel project existed. T
 - Grab drives velocity rather than applying a force, so a held object does not sag under its weight; heavy objects lag instead.
 - Not yet implemented (later phases): inspection panel and property editing, duplication, tool switching, save / load, additional environments, object pooling, LOD.
 - Browser checks were run with an ad-hoc headless-Chrome script that is not part of the repository; only the Vitest suite is automated in-repo.
+
+## Menu entry fix
+- Choosing an environment or loading a save now goes straight into the lab (the click is the gesture the browser needs for pointer lock).
+- The menu has an always-visible "Resume / Enter laboratory" button on every tab, and clicking the dimmed area outside the card resumes too.
+- e2e smoke test updated (25 checks).
