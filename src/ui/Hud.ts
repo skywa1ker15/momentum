@@ -7,6 +7,8 @@ export interface HudStats {
   frameMs: number;
   objects: number;
   objectLimit: number;
+  debris: number;
+  fractures: number;
   bodies: number;
   backend: string;
   quality: string;
@@ -27,7 +29,7 @@ const CONTROLS: Array<[string, Array<[string, string]>]> = [
   ["Force tool", [["Hold LMB", "Apply continuous force at the point aimed at"], ["RMB", "Strike with an impulse"], ["Scroll", "Change force magnitude"]]],
   ["Field tool", [["LMB", "Place attractor, repulsor or gravity zone"], ["RMB", "Remove the field aimed at"], ["Scroll", "Change field type"], ["V", "Change field strength"]]],
   ["Link tool", [["LMB LMB", "Join an object to another object or to the room"], ["RMB", "Remove joints on target / cancel"], ["Scroll", "Weld, hinge, ball or motor"]]],
-  ["Simulation", [["P", "Pause / resume"], ["[  ]", "Slower / faster"], ["R", "Reset experiment"], ["F4", "Next environment"]]],
+  ["Simulation", [["P", "Pause / resume"], ["[  ]", "Slower / faster"], ["R", "Reset experiment"], ["F4", "Next environment"], ["B", "Destruction intensity: off, low, normal, high"]]],
   ["Interface", [["Q", "Next tool"], ["Tab", "Edit mode: free the mouse to edit properties"], ["H", "Toggle this guide"], ["F2", "Cycle graphics quality"], ["Esc", "Release mouse"]]],
 ];
 
@@ -74,7 +76,7 @@ export class Hud {
     this.root.appendChild(this.simPill);
 
     const telemetry = el("div", "panel telemetry");
-    for (const [key, label] of [["fps", "FPS"], ["frame", "Frame"], ["objects", "Objects"], ["bodies", "Bodies"], ["backend", "Renderer"], ["quality", "Quality"]]) {
+    for (const [key, label] of [["fps", "FPS"], ["frame", "Frame"], ["objects", "Objects"], ["debris", "Debris"], ["bodies", "Bodies"], ["backend", "Renderer"], ["quality", "Quality"]]) {
       const row = el("div", "stat-row");
       const value = el("span", "stat-value", "-");
       row.append(el("span", "stat-label", label), value);
@@ -194,6 +196,7 @@ export class Hud {
     this.stat.fps.textContent = s.fps.toFixed(0);
     this.stat.frame.textContent = `${s.frameMs.toFixed(1)} ms`;
     this.stat.objects.textContent = `${s.objects} / ${s.objectLimit}`;
+    this.stat.debris.textContent = `${s.debris} · ${s.fractures} breaks`;
     this.stat.bodies.textContent = String(s.bodies);
     this.stat.backend.textContent = s.backend;
     this.stat.quality.textContent = s.quality;

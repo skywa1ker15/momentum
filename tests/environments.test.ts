@@ -7,7 +7,6 @@ import { PlayerController } from "../src/player/PlayerController";
 import { GrabTool } from "../src/tools/GrabTool";
 import { FieldTool, nearestAxis } from "../src/tools/FieldTool";
 import { LinkTool } from "../src/tools/LinkTool";
-import { JointManager } from "../src/construction/Joints";
 import { createLab, simulate } from "./helpers";
 
 const idle = { forward: 0, strafe: 0, sprint: false, jump: false };
@@ -24,10 +23,11 @@ describe("environments", () => {
       const meshesBefore = lab.scene.meshes.length;
       env.build({ scene: lab.scene, materials: lab.materials });
       expect(lab.world.bodyCount).toBeGreaterThan(5);
-      env.populate(lab.factory, lab.fields);
+      env.populate({ factory: lab.factory, fields: lab.fields, joints: lab.joints });
       expect(lab.factory.count).toBeGreaterThan(5);
       simulate(lab.world, 1);
       for (const o of lab.factory.all) expect(Number.isFinite(o.mesh.position.y)).toBe(true);
+      lab.joints.clear();
       lab.fields.clear();
       lab.factory.clear();
       env.dispose();
@@ -94,7 +94,7 @@ describe("phase 3 tools", () => {
 
   it("link tool joins two objects in two clicks and removes the joint on request", async () => {
     const lab = await createLab();
-    const joints = new JointManager(lab.scene, lab.factory);
+    const joints = lab.joints;
     const tool = new LinkTool(lab.world, lab.factory, joints);
     const a = lab.factory.spawn({ kind: "box", position: new Vector3(-0.5, 0.31, 10) })!;
     const b = lab.factory.spawn({ kind: "box", position: new Vector3(0.5, 0.31, 10) })!;

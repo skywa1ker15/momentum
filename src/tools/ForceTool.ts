@@ -3,6 +3,7 @@ import { PhysicsMotionType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlug
 import { CONFIG } from "../core/config";
 import type { ObjectFactory, SandboxObject } from "../objects/ObjectFactory";
 import type { PhysicsWorld } from "../physics/PhysicsWorld";
+import type { DestructionSystem } from "../destruction/Destruction";
 
 /**
  * Applies a continuous force, or a single impulse, at the point on the body under the crosshair.
@@ -20,6 +21,8 @@ export class ForceTool {
   constructor(
     private readonly world: PhysicsWorld,
     private readonly factory: ObjectFactory,
+    /** When given, impulse strikes are reported as impacts so they can break things. */
+    private readonly destruction?: DestructionSystem,
   ) {
     world.onBeforeStep.add(() => this.apply());
     const drop = (o: SandboxObject) => {
@@ -68,6 +71,8 @@ export class ForceTool {
     const hit = this.pick(eye, dir);
     if (!hit) return null;
     hit.obj.body.applyImpulse(dir.scale(this.impulse), hit.point);
+    // The strike acts like a hard (steel-like) striker.
+    this.destruction?.registerImpact(hit.obj, this.impulse, hit.point, 5);
     return hit.obj;
   }
 

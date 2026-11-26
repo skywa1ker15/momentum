@@ -1,5 +1,36 @@
 # Development log
 
+## 2026-11-26 - Phase 4: Destruction
+
+### Implemented
+- **Impact measurement.** Per body and per step, contact impulses from Havok are summed as vectors; dividing by mass gives the velocity change the contacts imposed.
+- **Fracture.** Each material has an impact strength (`breakSpeed`, m/s): glass 9, ice 10, concrete 12, wood 18, plastic 20, steel 120; rubber and elastic are unbreakable. The threshold drops by 20 % when the other body is harder and rises by 25 % when it is softer. An object that exceeds it is replaced by 2 to 16 fragments cut around the impact point; the fragments tile its volume, keep its total mass, start with its rigid-body velocity, and are ordinary objects (grab, inspect, break again up to two generations deep).
+- **Structural bonds.** Weld joints are breakable: they fail at half the weaker material's impact strength, releasing pieces of a structure without breaking the pieces themselves.
+- **Debris management.** Object limit raised to 350. A fracture that would exceed it removes the oldest debris first, then settles for fewer pieces.
+- **Intensity.** Off / Low / Normal / High (B key or inspector) scales all thresholds and the number of fragments.
+- **Force-tool strikes** count as impacts, so a hard strike can shatter an object.
+- **Destruction Arena.** A 40-brick concrete wall bonded by 67 welds, a 5.5 t steel wrecking ball on a ball joint that is released into the wall when the experiment starts, three glass panes welded to the floor, ice, wood and plastic stacks, and steel and rubber balls to throw.
+- HUD: debris and break counters; material info shows the impact strength; pendulum joints get a visible cable.
+
+### Tested
+- `npm test`: 64 tests passing (16 new), against real Havok. New checks: box fragments tile the parent exactly with no overlaps and respect the minimum edge; seeded determinism; smaller pieces near the impact; round-shape fragments lie inside the shape; glass survives a 0.6 m drop and shatters from 7 m with mass conserved in both our records and the engine; fragment momentum equals the parent's; rubber, elastic and steel survive a 10 m drop; the same 4 m concrete drop does nothing at Off and Normal and breaks at High; thresholds for hardness, size, generation and intensity; the object limit holds under fracture; force-tool strike breaks glass but not rubber; measured impact equals the actual velocity change for floor and body-body collisions; a 7-block stack with heavy blocks on light ones at 1/30 s steps registers under 1 m/s and nothing breaks; a weld holds at 0.8x and fails at 1.2x its strength; unbreakable welds; in the arena the wall stands until the ball arrives, then more than 5 bonds break and bricks fracture while the ball stays on its joint.
+- Production build in headless Chrome: arena loads, the ball breaks the wall (22 bonds broken, 4 bricks fractured, 22 debris in the run recorded), intensity key and inspector buttons, reset restores the wall, switching back to the Test Chamber returns the body count to baseline. Phase 1 to 3 scenarios rerun. No console errors or warnings.
+
+### Bugs found and fixed during the phase
+- **Resting stacks shattered on their own in the browser.** The first version summed contact impulse magnitudes. A light block under heavy ones receives large opposing impulses every step, and more so at the 1/30 s steps the browser takes on slow frames, so the starting tower broke with no impact at all. The headless tests ran at 1/60 s and missed it; the browser run caught it. Fixed by summing impulses as vectors, with a regression test at 1/30 s.
+- A box landing flat reports several contact points; judging each separately under-read the impact. Covered by the same per-step sum.
+- The arena wall silently lost 6 bonds to the 64-joint limit; limit raised to 160.
+- An existing weld test started failing because dropped wooden welds now legitimately break; it now uses an unbreakable material.
+
+### Known limitations
+- Fragments are boxes. Spheres and cylinders break into box-shaped pieces that only approximate their volume (mass is still conserved).
+- Crushing is not modelled: only impacts (net velocity change) break things, not slow squeezing under load.
+- The outward scatter of fragments is a model, not an engine result; it is momentum-neutral but adds some kinetic energy.
+- No dust, sparks or sound on fracture yet (Phase 5 and 6).
+- Fracture throughput and frame rate with hundreds of fragments are unmeasured on the target laptop.
+- I could not get the scripted in-browser throw to break glass (the scripted throw fell short); glass breaking from impacts is covered by the headless drop and strike tests instead.
+- WebGPU remains unverified (see Phase 1 entry).
+
 ## 2026-11-26 - Phase 3: Advanced interactions
 
 ### Implemented

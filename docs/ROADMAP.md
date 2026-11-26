@@ -15,13 +15,13 @@ Eight material presets; gravity fields (attractor, repulsor, directional zone) w
 
 Deferred: multi-select, a dedicated torque tool, slider and spring joints, snapping, and arbitrary (non-vertical) world gravity direction. These are picked up in Phase 5 with mechanical machines, except multi-select which moves to Phase 6 (UI).
 
-## Phase 4 - Destruction
-- Pre-fractured breakable objects (Voronoi-style convex pieces) with structural links between pieces.
-- Links break from contact impulse versus material durability; pieces become independent rigid bodies; debris budget and pooling.
-- Adjustable destruction intensity. Third environment: Destruction Arena.
+## Phase 4 - Destruction (complete)
+Impact-based fracture driven by material impact strength and hardness; fragments that conserve mass and momentum and can break again; breakable welded bonds for structures; debris budget; four intensity levels; Destruction Arena with a bonded brick wall, glass panes and a wrecking ball.
+
+Simplifications, to revisit in Phase 5: fragments are box-shaped (spheres and cylinders break into box pieces approximating their volume), and there is no dust or spark effect yet.
 
 ## Phase 5 - Advanced simulation
-- Particle systems (visual): sparks, dust, smoke-like volumes, adaptive counts.
+- Particle systems (visual): sparks, dust on fracture, smoke-like volumes, adaptive counts.
 - Explosions: radial impulse on bodies (simulated) plus pressure-wave and flash (visual).
 - Water: particle-based fluid within a bounded budget; clearly labelled simulated vs visual in the UI.
 - Deformation: soft / elastic bodies via constraint lattices; dent-style visual deformation for hard materials.

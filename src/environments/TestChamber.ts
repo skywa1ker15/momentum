@@ -3,8 +3,7 @@ import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder"
 import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { BaseEnvironment, type BlockOptions, type EnvironmentContext, type LightRig } from "./Environment";
-import type { ObjectFactory } from "../objects/ObjectFactory";
+import { BaseEnvironment, type BlockOptions, type EnvironmentContext, type LightRig, type PopulateContext } from "./Environment";
 
 const W = 36; // x extent
 const D = 48; // z extent
@@ -88,7 +87,7 @@ export class TestChamber extends BaseEnvironment {
     this.buildObservationDeck(ctx);
   }
 
-  populate(factory: ObjectFactory): void {
+  populate({ factory }: PopulateContext): void {
     // Crate pyramid on the test pad
     const s = 0.8;
     for (let row = 0; row < 4; row++) {

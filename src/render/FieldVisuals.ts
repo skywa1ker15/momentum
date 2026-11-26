@@ -1,5 +1,7 @@
 import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
+import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
+import { Quaternion } from "@babylonjs/core/Maths/math.vector";
 import { CreateLineSystem } from "@babylonjs/core/Meshes/Builders/linesBuilder";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
@@ -38,6 +40,9 @@ export class FieldVisuals {
   private readonly jointSource;
   private readonly motorSource;
   private readonly tmp = new Vector3();
+  /** Cable drawn from a joint's pivot to its body when the pivot is far from the body (pendulums). Index-aligned with joints. */
+  private readonly cables: (AbstractMesh | null)[] = [];
+  private readonly cableSource;
 
   constructor(
     private readonly scene: Scene,
@@ -67,6 +72,10 @@ export class FieldVisuals {
     this.motorSource.material = this.coolMarker;
     this.motorSource.isVisible = false;
 
+    this.cableSource = CreateCylinder("joint-cable", { diameter: 0.05, height: 1, tessellation: 8 }, scene);
+    this.cableSource.material = _materials.structure;
+    this.cableSource.isVisible = false;
+
     fields.onChange.push(() => this.rebuildFields());
     joints.onChange.push(() => this.rebuildJoints());
   }
@@ -77,16 +86,33 @@ export class FieldVisuals {
     for (let i = 0; i < all.length; i++) {
       this.joints.pivotWorld(all[i], this.tmp);
       this.jointMarkers[i]?.position.copyFrom(this.tmp);
+      const cable = this.cables[i];
+      if (cable) {
+        const body = all[i].a.mesh.position;
+        const span = body.subtract(this.tmp);
+        const length = span.length();
+        cable.position.copyFrom(this.tmp).addInPlace(span.scale(0.5));
+        cable.scaling.y = length;
+        cable.rotationQuaternion = Quaternion.FromUnitVectorsToRef(Vector3.UpReadOnly, span.scaleInPlace(1 / length), cable.rotationQuaternion ?? new Quaternion());
+      }
     }
   }
 
   private rebuildJoints(): void {
     for (const m of this.jointMarkers) m.dispose();
+    for (const c of this.cables) c?.dispose();
     this.jointMarkers.length = 0;
+    this.cables.length = 0;
     for (const j of this.joints.all) {
       const m = (j.kind === "motor" ? this.motorSource : this.jointSource).createInstance(`joint-${j.id}`);
       m.isPickable = false;
       this.jointMarkers.push(m);
+      let cable: AbstractMesh | null = null;
+      if (j.localPivotA.length() > 1.5) {
+        cable = this.cableSource.createInstance(`joint-cable-${j.id}`);
+        cable.isPickable = false;
+      }
+      this.cables.push(cable);
     }
     this.update();
   }

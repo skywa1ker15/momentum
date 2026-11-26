@@ -9,7 +9,7 @@ export const CONFIG = {
   },
   limits: {
     /** Hard cap on player-spawned / dynamic sandbox objects. */
-    maxObjects: 250,
+    maxObjects: 350,
     /** Objects that fall out of the world below this height are removed. */
     killPlaneY: -30,
   },
@@ -63,12 +63,39 @@ export const CONFIG = {
     zoneGravity: 9.81,
   },
   joints: {
-    maxJoints: 64,
+    maxJoints: 160,
     /** rad/s */
     defaultMotorSpeed: 4,
     maxMotorSpeed: 20,
     /** N m */
     motorMaxTorque: 20000,
+  },
+  destruction: {
+    /** Selectable intensity levels. Break thresholds are divided by the multiplier; 0 disables destruction. */
+    levels: [
+      ["Off", 0],
+      ["Low", 0.5],
+      ["Normal", 1],
+      ["High", 2],
+    ] as ReadonlyArray<readonly [string, number]>,
+    defaultLevel: 2,
+    /** Fragments per fracture at normal intensity for an object of about 0.2 m^3. */
+    basePieces: 7,
+    maxPieces: 16,
+    /** Fragments are never cut thinner than this (m). */
+    minEdge: 0.09,
+    /** Objects smaller than this volume (m^3), or already this many generations deep, do not fracture again. */
+    minVolume: 0.012,
+    maxGeneration: 2,
+    /** Welded bonds break at this fraction of the weaker material's breakSpeed. */
+    bondFactor: 0.5,
+    /** Share of the impact's velocity change that becomes outward scatter of the fragments (modelled, momentum-neutral). */
+    scatter: 0.3,
+    /** Threshold multipliers when the other body is harder / softer than the object hit. */
+    harderFactor: 0.8,
+    softerFactor: 1.25,
+    /** Hardness assumed for the room's floor, walls and fixtures (Mohs). */
+    worldHardness: 6,
   },
   gravity: {
     min: -25,

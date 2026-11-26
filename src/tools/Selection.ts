@@ -3,8 +3,7 @@ import type { IPhysicsCollisionEvent } from "@babylonjs/core/Physics/v2/IPhysics
 import type { ObjectFactory, SandboxObject } from "../objects/ObjectFactory";
 
 /**
- * The inspected object. Collision callbacks are enabled only for the selected
- * body, so contact impulses are reported without paying for events on every object.
+ * The inspected object, with the contact impulses it receives.
  */
 export class Selection {
   current: SandboxObject | null = null;
@@ -36,7 +35,6 @@ export class Selection {
     if (prev) {
       prev.mesh.showBoundingBox = false;
       if (this.observer) prev.body.getCollisionObservable().remove(this.observer);
-      prev.body.setCollisionCallbackEnabled(false);
       this.observer = null;
     }
     this.current = obj;
@@ -45,7 +43,6 @@ export class Selection {
     this.contacts = 0;
     if (obj) {
       obj.mesh.showBoundingBox = true;
-      obj.body.setCollisionCallbackEnabled(true);
       this.observer = obj.body.getCollisionObservable().add((ev) => {
         if (ev.impulse <= 0) return;
         this.lastImpact = ev.impulse;

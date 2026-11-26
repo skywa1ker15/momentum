@@ -30,13 +30,17 @@ src/
     Environment.ts        LabEnvironment interface, BaseEnvironment (block helpers, dispose)
     TestChamber.ts        Test Chamber 01
     GravityLab.ts         Gravity Laboratory (emitter field, upward column)
+    DestructionArena.ts   Destruction Arena (bonded brick wall, wrecking ball, glass panes)
     index.ts              Environment registry
   materials/
     Materials.ts          Physical material presets (density, friction, restitution, hardness, durability)
   fields/
     GravityFields.ts      Point fields (inverse-square) and gravity zones, applied as engine forces
   construction/
-    Joints.ts             Weld / hinge / ball / motor joints (Havok 6-DoF constraints)
+    Joints.ts             Weld / hinge / ball / motor joints (Havok 6-DoF constraints); welds are breakable bonds
+  destruction/
+    Destruction.ts        Impact measurement, break thresholds, fracture, bond breaking, debris budget
+    Fracture.ts           Fragment geometry (pure functions, seeded)
   objects/
     ObjectFactory.ts      Spawn / remove / duplicate objects, editable PhysicalProps, limits, instancing
     ObjectState.ts        Engine readout: velocity, momentum, kinetic energy (linear + rotational)
@@ -57,7 +61,7 @@ src/
 tests/                    Vitest suites running real Havok headlessly
 ```
 
-Planned modules (created when their phase starts, not before): `destruction/` (fracture, structural links, debris), `effects/` (particles, fluid, smoke; visual vs simulated split), `persistence/` (save / load experiments), `ui/panels/` (inspector, settings, environment select).
+Planned modules (created when their phase starts, not before): `effects/` (particles, fluid, smoke; visual vs simulated split), `persistence/` (save / load experiments), `ui/panels/` (inspector, settings, environment select).
 
 ## Frame loop (`App.tick`)
 
@@ -88,10 +92,12 @@ Planned modules (created when their phase starts, not before): `destruction/` (f
 - Mass is written to the engine; Havok keeps the inertia tensor **per unit mass**, derived from the collision shape, so rotational inertia follows mass automatically. `ObjectState` multiplies by mass when computing rotational energy.
 - Friction and restitution live on the shape material; damping, gravity factor and motion type on the body.
 - Sleeping bodies do not react to gravity or property changes until woken; `ObjectFactory.wake` / `wakeAll` handle that.
-- Collision callbacks are enabled only for the selected body.
 - Materials: mass = density x volume; friction and restitution are written to the shape. Changing an object's material rebuilds its mesh and body in place (`ObjectFactory.onRebuilt`); joints are recreated on the new body.
 - Gravity fields apply F = m a at the centre of mass every step. A zone adds its own gravity and cancels the object's share of world gravity, so net gravity inside equals the zone's. The player is not affected by fields.
 - Joints are 6-DoF constraints with locked axes: weld locks all six, hinge and motor leave rotation about the joint axis free, ball leaves all rotation free. Collision between the two joined bodies is disabled.
+- Destruction: each step the engine's contact impulses are summed **as vectors** per body; net impulse / mass is the velocity change the contacts imposed. This is step-size independent for resting loads (a block in a stack nets only its own weight x dt), which a sum of magnitudes is not. An object fractures when that velocity change exceeds its material's `breakSpeed`, adjusted for the other body's hardness and the intensity setting. Fracture happens after the step, never inside the contact callback.
+- Fragments tile the parent's volume, conserve its mass, and start with the parent's rigid-body velocity at their position. The extra outward scatter is a model (not derived from the engine) and is made momentum-neutral.
+- Collision callbacks are enabled on every sandbox object (needed for destruction and the inspector's impact readout).
 - Switching environment disposes all static meshes and bodies of the old one; tests assert the body count returns to zero.
 
 ## Rendering strategy

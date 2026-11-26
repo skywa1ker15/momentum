@@ -2,7 +2,7 @@
 
 An advanced 3D physics sandbox set in an experimental laboratory. Built with Babylon.js, Havok Physics, TypeScript and Vite.
 
-**Status:** Phases 1 to 3 of 7 complete (foundation, physics systems, advanced interactions). See [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next and [docs/DEVLOG.md](docs/DEVLOG.md) for what was built and tested.
+**Status:** Phases 1 to 4 of 7 complete (foundation, physics systems, advanced interactions, destruction). See [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next and [docs/DEVLOG.md](docs/DEVLOG.md) for what was built and tested.
 
 ## Run
 
@@ -30,7 +30,8 @@ npm run preview    # serve the production build
 | Force: hold LMB, RMB, scroll | Continuous force at the aimed point, impulse strike, change magnitude |
 | Field: LMB, RMB, scroll, V | Place attractor / repulsor / gravity zone, remove the one aimed at, change type, change strength |
 | Link: LMB then LMB, RMB, scroll | Join an object to another object or the room, remove joints, choose weld / hinge / ball / motor |
-| F4 | Next environment |
+| F4 | Next environment (Test Chamber, Gravity Laboratory, Destruction Arena) |
+| B | Destruction intensity: off, low, normal, high |
 | Tab | Edit mode: frees the mouse to edit properties and world gravity |
 | P, [ ] | Pause, slower / faster simulation |
 | R | Reset experiment |

@@ -59,6 +59,7 @@ export class Inspector {
   onMotorSpeed: ((radPerSec: number) => void) | null = null;
   onRemoveJoints: (() => void) | null = null;
   onEnvironment: ((id: string) => void) | null = null;
+  onDestructionLevel: ((level: number) => void) | null = null;
 
   readonly root: HTMLElement;
   private readonly title: HTMLElement;
@@ -77,6 +78,7 @@ export class Inspector {
   private readonly motorInput: HTMLInputElement;
   private readonly motorValue: HTMLElement;
   private readonly envButtons = new Map<string, HTMLButtonElement>();
+  private readonly destructionButtons: HTMLButtonElement[] = [];
   private lastLiveAt = 0;
 
   constructor(parent: HTMLElement, environments: ReadonlyArray<{ id: string; name: string }>) {
@@ -210,6 +212,14 @@ export class Inspector {
     const presets = el("div", "inspector-actions");
     for (const [name, g] of CONFIG.gravity.presets) presets.appendChild(this.button(name, () => this.onGravityChange?.(g)));
     world.appendChild(presets);
+    world.appendChild(el("div", "section-label", "Destruction"));
+    const levels = el("div", "inspector-actions");
+    CONFIG.destruction.levels.forEach(([name], i) => {
+      const b = this.button(name, () => this.onDestructionLevel?.(i));
+      levels.appendChild(b);
+      this.destructionButtons.push(b);
+    });
+    world.appendChild(levels);
     world.appendChild(el("div", "section-label", "Environment"));
     const envs = el("div", "inspector-actions");
     for (const env of environments) {
@@ -231,7 +241,7 @@ export class Inspector {
     if (!obj) return;
     this.setProps(obj.props);
     const def = MATERIALS[obj.materialId];
-    this.materialInfo.innerHTML = `<span class="material-name">${def.name}</span><span class="stat-value">${def.density} kg/m³ · hardness ${def.hardness} · durability ${def.durability}</span>`;
+    this.materialInfo.innerHTML = `<span class="material-name">${def.name}</span><span class="stat-value">${def.density} kg/m³ · hardness ${def.hardness} · ${def.breakSpeed === null ? "unbreakable" : `breaks at ${def.breakSpeed} m/s impact`}</span>`;
     for (const [id, b] of this.swatches) b.classList.toggle("active", id === obj.materialId);
     this.setJoints(joints);
   }
@@ -244,6 +254,10 @@ export class Inspector {
       this.motorInput.value = String(joints.motorSpeed);
       this.motorValue.textContent = `${fixed(joints.motorSpeed, 1)} rad/s`;
     }
+  }
+
+  setDestructionLevel(level: number): void {
+    this.destructionButtons.forEach((b, i) => b.classList.toggle("active", i === level));
   }
 
   setEnvironment(id: string): void {

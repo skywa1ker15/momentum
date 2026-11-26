@@ -64,6 +64,8 @@ export interface SpawnOptions {
   linearVelocity?: Vector3;
   /** Overrides for the default physical properties. */
   props?: Partial<PhysicalProps>;
+  /** 0 for ordinary objects; fragments carry their parent's generation + 1. */
+  generation?: number;
 }
 
 export interface SandboxObject {
@@ -74,6 +76,8 @@ export interface SandboxObject {
   body: PhysicsBody;
   size: Vector3;
   materialId: MaterialId;
+  /** How many fractures deep this object is (0 = not a fragment). */
+  generation: number;
   /** Last values applied to the engine. Change them only through ObjectFactory.setProps. */
   props: PhysicalProps;
 }
@@ -136,7 +140,7 @@ export class ObjectFactory {
     const { mesh, aggregate, props } = this.build(id, opts.kind, size, materialId, opts.position, opts.rotation ?? Quaternion.Identity());
     if (opts.linearVelocity) aggregate.body.setLinearVelocity(opts.linearVelocity);
 
-    const obj: SandboxObject = { id, kind: opts.kind, mesh, aggregate, body: aggregate.body, size: size.clone(), materialId, props };
+    const obj: SandboxObject = { id, kind: opts.kind, mesh, aggregate, body: aggregate.body, size: size.clone(), materialId, generation: opts.generation ?? 0, props };
     if (opts.props) this.setProps(obj, opts.props);
     this.objects.set(id, obj);
     for (const cb of this.onSpawned) cb(obj);
@@ -187,6 +191,7 @@ export class ObjectFactory {
     const mass = def.density * primitiveVolume(kind, size);
     const shape = kind === "box" ? PhysicsShapeType.BOX : kind === "sphere" ? PhysicsShapeType.SPHERE : PhysicsShapeType.CYLINDER;
     const aggregate = new PhysicsAggregate(mesh, shape, { mass, friction: def.friction, restitution: def.restitution }, this.scene);
+    aggregate.body.setCollisionCallbackEnabled(true); // contact impulses feed the inspector and the destruction system
     const props: PhysicalProps = {
       mass,
       friction: def.friction,
@@ -271,6 +276,17 @@ export class ObjectFactory {
   fromBody(body: PhysicsBody): SandboxObject | null {
     const id = body.transformNode?.metadata?.sandboxId as number | undefined;
     return id === undefined ? null : (this.objects.get(id) ?? null);
+  }
+
+  get debrisCount(): number {
+    let n = 0;
+    for (const o of this.objects.values()) if (o.generation > 0) n++;
+    return n;
+  }
+
+  /** Fragments, oldest first. */
+  debris(): SandboxObject[] {
+    return [...this.objects.values()].filter((o) => o.generation > 0);
   }
 
   /** Removes objects that have fallen out of the world. Returns how many were removed. */

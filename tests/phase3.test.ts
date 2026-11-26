@@ -4,7 +4,6 @@ import { CONFIG } from "../src/core/config";
 import { MATERIALS, MATERIAL_ORDER } from "../src/materials/Materials";
 import { primitiveVolume } from "../src/objects/ObjectFactory";
 import { GravityFields } from "../src/fields/GravityFields";
-import { JointManager } from "../src/construction/Joints";
 import { createLab, simulate } from "./helpers";
 
 const ZERO_G = new Vector3(0, 0, 0);
@@ -139,9 +138,10 @@ describe("joints", () => {
 
   it("weld keeps two bodies rigidly together", async () => {
     const lab = await createLab();
-    const joints = new JointManager(lab.scene, lab.factory);
-    const a = lab.factory.spawn({ kind: "box", position: new Vector3(0, 5, 14) })!;
-    const b = lab.factory.spawn({ kind: "box", position: new Vector3(0.6, 5, 14) })!;
+    const joints = lab.joints;
+    // Rubber: its welds are unbreakable, so this isolates the constraint from the destruction system.
+    const a = lab.factory.spawn({ kind: "box", material: "rubber", position: new Vector3(0, 5, 14) })!;
+    const b = lab.factory.spawn({ kind: "box", material: "rubber", position: new Vector3(0.6, 5, 14) })!;
     expect(joints.create("weld", a, b.body, b, new Vector3(0.3, 5, 14), Vector3.Up())).not.toBeNull();
     b.body.applyImpulse(new Vector3(0, 0, 300), b.mesh.position); // off-centre for the pair: spins it
     simulate(lab.world, 3);
@@ -153,7 +153,7 @@ describe("joints", () => {
 
   it("hinge to the world lets a body swing about the pivot without drifting", async () => {
     const lab = await createLab();
-    const joints = new JointManager(lab.scene, lab.factory);
+    const joints = lab.joints;
     const ceiling = lab.world.raycast(new Vector3(0, 5, 14), new Vector3(0, 20, 14))!.body;
     const pivot = new Vector3(0, 6, 14);
     const arm = lab.factory.spawn({ kind: "box", size: new Vector3(2, 0.2, 0.2), position: new Vector3(1, 6, 14), props: { angularDamping: 0, linearDamping: 0 } })!;
@@ -173,7 +173,7 @@ describe("joints", () => {
 
   it("ball joint holds the pivot but allows swinging in any direction", async () => {
     const lab = await createLab();
-    const joints = new JointManager(lab.scene, lab.factory);
+    const joints = lab.joints;
     const ceiling = lab.world.raycast(new Vector3(0, 5, 14), new Vector3(0, 20, 14))!.body;
     const pivot = new Vector3(0, 6, 14);
     const bob = lab.factory.spawn({ kind: "sphere", position: new Vector3(0, 4.5, 14), props: { angularDamping: 0, linearDamping: 0 } })!;
@@ -194,7 +194,7 @@ describe("joints", () => {
   it("motor drives a wheel to its target angular speed and follows speed changes", async () => {
     const lab = await createLab();
     lab.world.setGravity(ZERO_G);
-    const joints = new JointManager(lab.scene, lab.factory);
+    const joints = lab.joints;
     const floor = worldBodyBelow(lab);
     const wheel = lab.factory.spawn({ kind: "cylinder", size: new Vector3(1, 0.3, 1), position: new Vector3(0, 3, 15), props: { angularDamping: 0 } })!;
     const joint = joints.create("motor", wheel, floor, null, new Vector3(0, 3, 15), Vector3.Up())!;
@@ -210,7 +210,7 @@ describe("joints", () => {
 
   it("joints survive a material change and are removed with their objects", async () => {
     const lab = await createLab();
-    const joints = new JointManager(lab.scene, lab.factory);
+    const joints = lab.joints;
     const a = lab.factory.spawn({ kind: "box", position: new Vector3(0, 2, 14) })!;
     const b = lab.factory.spawn({ kind: "box", position: new Vector3(0.6, 2, 14) })!;
     const c = lab.factory.spawn({ kind: "box", position: new Vector3(1.2, 2, 14) })!;

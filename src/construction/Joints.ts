@@ -4,6 +4,7 @@ import { PhysicsConstraintAxis, PhysicsConstraintMotorType } from "@babylonjs/co
 import type { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import type { Scene } from "@babylonjs/core/scene";
 import { CONFIG } from "../core/config";
+import { MATERIALS } from "../materials/Materials";
 import type { ObjectFactory, SandboxObject } from "../objects/ObjectFactory";
 
 export type JointKind = "weld" | "hinge" | "ball" | "motor";
@@ -23,6 +24,8 @@ export interface Joint {
   localAxisA: Vector3;
   /** Motor target, rad/s (motor joints only). */
   motorSpeed: number;
+  /** Welds only: the bond breaks when an impact changes either body's velocity by more than this (m/s). Null = unbreakable. */
+  breakSpeed: number | null;
 }
 
 const LINEAR = [PhysicsConstraintAxis.LINEAR_X, PhysicsConstraintAxis.LINEAR_Y, PhysicsConstraintAxis.LINEAR_Z];
@@ -39,6 +42,14 @@ function toLocalPoint(body: PhysicsBody, world: Vector3): Vector3 {
 
 function toLocalDir(body: PhysicsBody, world: Vector3): Vector3 {
   return world.rotateByQuaternionToRef(Quaternion.Inverse(bodyRotation(body)), new Vector3()).normalize();
+}
+
+/** Strength of a welded bond: a fraction of the weaker breakable material's impact strength. */
+export function bondStrength(a: SandboxObject, b: SandboxObject | null): number | null {
+  const sa = MATERIALS[a.materialId].breakSpeed;
+  const sb = b ? MATERIALS[b.materialId].breakSpeed : null;
+  const weakest = sa === null ? sb : sb === null ? sa : Math.min(sa, sb);
+  return weakest === null ? null : weakest * CONFIG.destruction.bondFactor;
 }
 
 /** Any unit vector perpendicular to `v`. */
@@ -109,7 +120,7 @@ export class JointManager {
     );
     a.body.addConstraint(bBody, constraint);
 
-    const joint: Joint = { id: this.nextId++, kind, a, bBody, b, constraint, localPivotA, localAxisA: toLocalDir(a.body, n), motorSpeed: 0 };
+    const joint: Joint = { id: this.nextId++, kind, a, bBody, b, constraint, localPivotA, localAxisA: toLocalDir(a.body, n), motorSpeed: 0, breakSpeed: kind === "weld" ? bondStrength(a, b) : null };
     this.joints.push(joint);
     if (kind === "motor") this.setMotorSpeed(joint, CONFIG.joints.defaultMotorSpeed);
     this.changed();

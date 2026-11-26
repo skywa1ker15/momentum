@@ -14,6 +14,7 @@ import { JointManager, type Joint } from "../construction/Joints";
 import { FieldTool } from "../tools/FieldTool";
 import { LinkTool } from "../tools/LinkTool";
 import { FieldVisuals } from "../render/FieldVisuals";
+import { DestructionSystem } from "../destruction/Destruction";
 import { MATERIALS, MATERIAL_ORDER, DEFAULT_MATERIAL, type MaterialId } from "../materials/Materials";
 import { ObjectFactory, PRIMITIVE_KINDS, type PrimitiveKind, type SandboxObject } from "../objects/ObjectFactory";
 import { PlayerController, type MoveIntent } from "../player/PlayerController";
@@ -56,6 +57,7 @@ export class App {
   readonly joints: JointManager;
   readonly fieldTool: FieldTool;
   readonly linkTool: LinkTool;
+  readonly destruction: DestructionSystem;
   environment: LabEnvironment;
   selectedMaterial: MaterialId = DEFAULT_MATERIAL;
   tool: ToolId = "hand";
@@ -111,12 +113,13 @@ export class App {
     });
     this.fields = new GravityFields(this.world, this.factory);
     this.joints = new JointManager(this.scene, this.factory);
+    this.destruction = new DestructionSystem(this.world, this.factory, this.joints, Date.now() & 0xffff);
     this.fieldVisuals = new FieldVisuals(this.scene, this.fields, this.joints, materials);
-    this.environment.populate(this.factory, this.fields);
+    this.environment.populate({ factory: this.factory, fields: this.fields, joints: this.joints });
 
     this.player = new PlayerController(this.scene, this.environment.spawnPoint, this.environment.spawnYaw);
     this.grab = new GrabTool(this.world, this.factory);
-    this.force = new ForceTool(this.world, this.factory);
+    this.force = new ForceTool(this.world, this.factory, this.destruction);
     this.selection = new Selection(this.factory);
     this.fieldTool = new FieldTool(this.world, this.fields);
     this.linkTool = new LinkTool(this.world, this.factory, this.joints);
@@ -157,6 +160,8 @@ export class App {
       if (this.selection.current) this.joints.removeFor(this.selection.current);
     };
     inspector.onEnvironment = (id) => this.loadEnvironment(id);
+    inspector.onDestructionLevel = (level) => this.setDestructionLevel(level);
+    inspector.setDestructionLevel(this.destruction.level);
     inspector.onPropChange = (change) => {
       const obj = this.selection.current;
       if (obj) this.factory.setProps(obj, change);
@@ -226,6 +231,12 @@ export class App {
   nextEnvironment(): void {
     const i = ENVIRONMENTS.findIndex((e) => e.id === this.environment.id);
     this.loadEnvironment(ENVIRONMENTS[(i + 1) % ENVIRONMENTS.length].id);
+  }
+
+  setDestructionLevel(level: number): void {
+    this.destruction.setLevel(level);
+    this.hud.inspector.setDestructionLevel(this.destruction.level);
+    this.hud.toast(`Destruction: ${this.destruction.levelName}`);
   }
 
   togglePause(): void {
@@ -313,12 +324,14 @@ export class App {
     this.joints.clear();
     this.fields.clear();
     this.factory.clear();
+    this.destruction.stats.fractures = 0;
+    this.destruction.stats.bondsBroken = 0;
   }
 
   /** Populates the current environment and puts the player and world back to their starting state. */
   private startExperiment(): void {
     this.setGravity(this.environment.gravityY);
-    this.environment.populate(this.factory, this.fields);
+    this.environment.populate({ factory: this.factory, fields: this.fields, joints: this.joints });
     this.player.teleport(this.environment.spawnPoint, this.environment.spawnYaw);
     this.world.paused = false;
     this.world.timeScale = 1;
@@ -416,6 +429,8 @@ export class App {
         fps: this.engine.getFps(),
         frameMs: this.engine.getDeltaTime(),
         objects: this.factory.count,
+        debris: this.factory.debrisCount,
+        fractures: this.destruction.stats.fractures,
         objectLimit: CONFIG.limits.maxObjects,
         bodies: this.world.bodyCount,
         backend: this.backend,
@@ -443,6 +458,7 @@ export class App {
     if (input.wasPressed("KeyM")) this.cycleMaterial(1);
     if (input.wasPressed("KeyN")) this.cycleMaterial(-1);
     if (input.wasPressed("F4")) this.nextEnvironment();
+    if (input.wasPressed("KeyB")) this.setDestructionLevel((this.destruction.level + 1) % CONFIG.destruction.levels.length);
     if (this.tool === "field") {
       if (input.wasPressed("Mouse0") && !this.fieldTool.place(eye, dir)) this.hud.toast(`Field limit reached (${CONFIG.fields.maxFields})`);
       if (input.wasPressed("Mouse2")) this.fieldTool.removeAimed(eye, dir);

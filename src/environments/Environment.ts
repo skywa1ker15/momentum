@@ -12,10 +12,19 @@ import { CONFIG } from "../core/config";
 import type { MaterialLibrary } from "../render/MaterialLibrary";
 import type { ObjectFactory } from "../objects/ObjectFactory";
 import type { GravityFields } from "../fields/GravityFields";
+import type { JointManager } from "../construction/Joints";
+import type { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 
 export interface EnvironmentContext {
   scene: Scene;
   materials: MaterialLibrary;
+}
+
+/** Systems an environment may use to set up its starting experiment. */
+export interface PopulateContext {
+  factory: ObjectFactory;
+  fields: GravityFields;
+  joints: JointManager;
 }
 
 export interface LightRig {
@@ -42,8 +51,8 @@ export interface LabEnvironment {
   /** Static meshes rendered into the reflection probe. */
   readonly staticMeshes: AbstractMesh[];
   build(ctx: EnvironmentContext): void;
-  /** Spawns the dynamic props (and any fields) for a fresh experiment. Called on load and on reset. */
-  populate(factory: ObjectFactory, fields: GravityFields): void;
+  /** Spawns the dynamic props, fields and joints for a fresh experiment. Called on load and on reset. */
+  populate(ctx: PopulateContext): void;
   /** Removes all static geometry and colliders. */
   dispose(): void;
 }
@@ -71,16 +80,18 @@ export abstract class BaseEnvironment implements LabEnvironment {
 
   protected scene!: Scene;
   private readonly aggregates: PhysicsAggregate[] = [];
+  private readonly bodies = new Map<string, PhysicsBody>();
   private readonly sources: Mesh[] = [];
 
   abstract build(ctx: EnvironmentContext): void;
-  abstract populate(factory: ObjectFactory, fields: GravityFields): void;
+  abstract populate(ctx: PopulateContext): void;
 
   dispose(): void {
     for (const a of this.aggregates) a.dispose();
     for (const m of this.staticMeshes) m.dispose();
     for (const m of this.sources) m.dispose();
     this.aggregates.length = 0;
+    this.bodies.clear();
     this.staticMeshes.length = 0;
     this.sources.length = 0;
     this.shadowCasters.length = 0;
@@ -94,11 +105,20 @@ export abstract class BaseEnvironment implements LabEnvironment {
     mesh.material = material;
     mesh.receiveShadows = opts.receiveShadow ?? true;
     if (opts.collider ?? true) {
-      this.aggregates.push(new PhysicsAggregate(mesh, PhysicsShapeType.BOX, { mass: 0, friction: opts.friction ?? 0.6, restitution: 0.1 }, this.scene));
+      const aggregate = new PhysicsAggregate(mesh, PhysicsShapeType.BOX, { mass: 0, friction: opts.friction ?? 0.6, restitution: 0.1 }, this.scene);
+      this.aggregates.push(aggregate);
+      this.bodies.set(name, aggregate.body);
     }
     if (opts.castShadow) this.shadowCasters.push(mesh);
     this.finishStatic(mesh);
     return mesh;
+  }
+
+  /** Static body of a block created by this environment, for joints to the room. */
+  protected bodyOf(name: string): PhysicsBody {
+    const body = this.bodies.get(name);
+    if (!body) throw new Error(`Environment ${this.id} has no collider named "${name}"`);
+    return body;
   }
 
   /** Registers a hidden mesh that only serves as the source of GPU instances. */

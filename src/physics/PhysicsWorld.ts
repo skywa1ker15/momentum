@@ -9,6 +9,16 @@ import type { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import type { Scene } from "@babylonjs/core/scene";
 import { CONFIG } from "../core/config";
 
+export interface ContactEvent {
+  a: PhysicsBody;
+  b: PhysicsBody;
+  /** Contact impulse magnitude, N s. */
+  impulse: number;
+  point: Vector3 | null;
+  /** Contact normal, pointing from `a` towards `b`. The impulse on `a` is -normal * impulse, on `b` +normal * impulse. */
+  normal: Vector3 | null;
+}
+
 export interface RayHit {
   body: PhysicsBody;
   point: Vector3;
@@ -24,6 +34,8 @@ export interface RayHit {
 export class PhysicsWorld {
   readonly onBeforeStep = new Observable<number>();
   readonly onAfterStep = new Observable<number>();
+  /** Contacts with a non-zero impulse between bodies that have collision callbacks enabled. Fired during the step. */
+  readonly onContact = new Observable<ContactEvent>();
   paused = false;
   timeScale = 1;
   /** Simulated seconds elapsed since creation. */
@@ -40,6 +52,9 @@ export class PhysicsWorld {
     scene.enablePhysics(new Vector3(0, CONFIG.physics.gravity, 0), plugin);
     scene.physicsEnabled = false; // we step manually in step()
     this.engine = scene.getPhysicsEngine() as PhysicsEngine;
+    plugin.onCollisionObservable.add((ev) => {
+      if (ev.impulse > 0) this.onContact.notifyObservers({ a: ev.collider, b: ev.collidedAgainst, impulse: ev.impulse, point: ev.point, normal: ev.normal });
+    });
   }
 
   /** Advance by a real-time delta (seconds). Applies pause, clamping and time scale. Returns simulated seconds. */

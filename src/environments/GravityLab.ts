@@ -3,9 +3,7 @@ import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder"
 import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { BaseEnvironment, type EnvironmentContext, type LightRig } from "./Environment";
-import type { ObjectFactory } from "../objects/ObjectFactory";
-import type { GravityFields } from "../fields/GravityFields";
+import { BaseEnvironment, type EnvironmentContext, type LightRig, type PopulateContext } from "./Environment";
 import type { MaterialId } from "../materials/Materials";
 
 const S = 32; // floor is S x S
@@ -121,7 +119,7 @@ export class GravityLab extends BaseEnvironment {
     this.block("g-gallery-landing", new Vector3(4, 0.4, g.depth), new Vector3(rampX, g.top - 0.2, gz), m.deck, { castShadow: true });
   }
 
-  populate(factory: ObjectFactory, fields: GravityFields): void {
+  populate({ factory, fields }: PopulateContext): void {
     // Emitter: at 4.4 m (the ring of props below) it pulls at 400 / 4.4^2 = 21 m/s^2, about twice g
     fields.addPoint("attractor", GravityLab.EMITTER, 400, 10);
     // Upward column
