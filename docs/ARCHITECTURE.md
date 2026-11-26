@@ -22,7 +22,8 @@ src/
     Lighting.ts           Key/fill/spot lights, shadow generator
     RenderPipeline.ts     Tone mapping, bloom, FXAA/MSAA, glow, reflection probe, selection box
     VectorOverlay.ts      Velocity / force arrows drawn from engine values
-    FieldVisuals.ts       Markers for fields, zones and joints
+    FieldVisuals.ts       Markers for fields, zones, water volumes, joints, cables and springs
+    Effects.ts            VISUAL particle bursts (pooled) and blast shock rings, adaptive budget
   physics/
     PhysicsWorld.ts       Havok world: stepping, pause, time scale, gravity, raycast
     loadHavok.ts          Browser WASM loader
@@ -38,6 +39,11 @@ src/
     GravityFields.ts      Point fields (inverse-square) and gravity zones, applied as engine forces
   construction/
     Joints.ts             Weld / hinge / ball / motor joints (Havok 6-DoF constraints); welds are breakable bonds
+  effects/
+    Explosions.ts         SIMULATED blast: pressure front, impulse per presented area, line of sight
+    Deformation.ts        VISUAL squash of soft materials, driven by measured impacts
+  fluids/
+    WaterVolumes.ts       SIMULATED water: Archimedes buoyancy and quadratic drag in box volumes
   destruction/
     Destruction.ts        Impact measurement, break thresholds, fracture, bond breaking, debris budget
     Fracture.ts           Fragment geometry (pure functions, seeded)
@@ -61,7 +67,7 @@ src/
 tests/                    Vitest suites running real Havok headlessly
 ```
 
-Planned modules (created when their phase starts, not before): `effects/` (particles, fluid, smoke; visual vs simulated split), `persistence/` (save / load experiments), `ui/panels/` (inspector, settings, environment select).
+Planned modules (created when their phase starts, not before): `persistence/` (save / load experiments), `ui/panels/` (inspector, settings, environment select).
 
 ## Frame loop (`App.tick`)
 
@@ -98,6 +104,10 @@ Planned modules (created when their phase starts, not before): `effects/` (parti
 - Destruction: each step the engine's contact impulses are summed **as vectors** per body; net impulse / mass is the velocity change the contacts imposed. This is step-size independent for resting loads (a block in a stack nets only its own weight x dt), which a sum of magnitudes is not. An object fractures when that velocity change exceeds its material's `breakSpeed`, adjusted for the other body's hardness and the intensity setting. Fracture happens after the step, never inside the contact callback.
 - Fragments tile the parent's volume, conserve its mass, and start with the parent's rigid-body velocity at their position. The extra outward scatter is a model (not derived from the engine) and is made momentum-neutral.
 - Collision callbacks are enabled on every sandbox object (needed for destruction and the inspector's impact readout).
+- Explosions: a front expands at 120 m/s; when it reaches a body the body gets J = i(r) x A through the engine, with i(r) = strength / r^2 tapering to zero at the blast radius and A the area the body presents. Bodies behind static geometry get nothing; bodies behind other objects get 30 %. The impulse is also reported to the destruction system.
+- Water: buoyancy F = -rho V_submerged g at the centre of the immersed part, plus quadratic drag. Floating level therefore equals density / 1000 (tested). The water itself does not flow.
+- Springs: Havok's stiffness is in N/m (measured), its damping parameter is not N s/m; `springDampingScale` was calibrated by measurement.
+- Particle effects are pooled per kind and scaled by a budget (graphics quality x frame-rate headroom).
 - Switching environment disposes all static meshes and bodies of the old one; tests assert the body count returns to zero.
 
 ## Rendering strategy

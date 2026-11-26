@@ -10,6 +10,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Scene } from "@babylonjs/core/scene";
 import type { GravityField, GravityFields, PointField, ZoneField } from "../fields/GravityFields";
 import type { JointManager } from "../construction/Joints";
+import type { WaterVolume, WaterVolumes } from "../fluids/WaterVolumes";
 import type { MaterialLibrary } from "./MaterialLibrary";
 
 const ATTRACT = new Color3(0.35, 0.85, 1);
@@ -34,6 +35,10 @@ function circle(center: Vector3, radius: number, axis: 0 | 1 | 2, segments = 48)
 export class FieldVisuals {
   private meshes: AbstractMesh[] = [];
   private readonly zoneMaterial: StandardMaterial;
+  private readonly waterMaterial: StandardMaterial;
+  private readonly surfaceMaterial: StandardMaterial;
+  private waterMeshes: AbstractMesh[] = [];
+  private readonly tmpB = new Vector3();
   private readonly coolMarker: StandardMaterial;
   private readonly warmMarker: StandardMaterial;
   private readonly jointMarkers: AbstractMesh[] = [];
@@ -49,7 +54,19 @@ export class FieldVisuals {
     private readonly fields: GravityFields,
     private readonly joints: JointManager,
     _materials: MaterialLibrary,
+    private readonly water?: WaterVolumes,
   ) {
+    this.waterMaterial = new StandardMaterial("mat-water-volume", scene);
+    this.waterMaterial.emissiveColor = new Color3(0.12, 0.38, 0.62);
+    this.waterMaterial.disableLighting = true;
+    this.waterMaterial.alpha = 0.22;
+    this.waterMaterial.backFaceCulling = false;
+    this.surfaceMaterial = new StandardMaterial("mat-water-surface", scene);
+    this.surfaceMaterial.emissiveColor = new Color3(0.3, 0.62, 0.85);
+    this.surfaceMaterial.disableLighting = true;
+    this.surfaceMaterial.alpha = 0.3;
+    this.surfaceMaterial.backFaceCulling = false;
+    water?.onChange.push(() => this.rebuildWater());
     // Marker colours stay under the bloom threshold so markers read as indicators, not light sources.
     const marker = (name: string, color: Color3) => {
       const m = new StandardMaterial(name, scene);
@@ -88,8 +105,10 @@ export class FieldVisuals {
       this.jointMarkers[i]?.position.copyFrom(this.tmp);
       const cable = this.cables[i];
       if (cable) {
-        const body = all[i].a.mesh.position;
-        const span = body.subtract(this.tmp);
+        // Pendulum cables run from the pivot to the body; springs run between their two ends.
+        const end = all[i].kind === "spring" ? this.joints.pivotWorldB(all[i], this.tmpB) : all[i].a.mesh.position;
+        const span = end.subtract(this.tmp);
+        if (span.lengthSquared() < 1e-6) continue;
         const length = span.length();
         cable.position.copyFrom(this.tmp).addInPlace(span.scale(0.5));
         cable.scaling.y = length;
@@ -106,15 +125,47 @@ export class FieldVisuals {
     for (const j of this.joints.all) {
       const m = (j.kind === "motor" ? this.motorSource : this.jointSource).createInstance(`joint-${j.id}`);
       m.isPickable = false;
+      if (j.kind === "spring") m.scaling.setAll(0.6);
       this.jointMarkers.push(m);
       let cable: AbstractMesh | null = null;
-      if (j.localPivotA.length() > 1.5) {
+      if (j.kind === "spring" || j.localPivotA.length() > 1.5) {
         cable = this.cableSource.createInstance(`joint-cable-${j.id}`);
         cable.isPickable = false;
       }
       this.cables.push(cable);
     }
     this.update();
+  }
+
+  private rebuildWater(): void {
+    for (const m of this.waterMeshes) m.dispose();
+    this.waterMeshes = [];
+    for (const w of this.water?.all ?? []) this.buildWater(w);
+  }
+
+  private buildWater(w: WaterVolume): void {
+    const h = w.halfExtents;
+    const body = CreateBox(`water-volume-${w.id}`, { width: h.x * 2, height: h.y * 2, depth: h.z * 2 }, this.scene);
+    body.position.copyFrom(w.position);
+    body.material = this.waterMaterial;
+    const surface = CreateBox(`water-surface-${w.id}`, { width: h.x * 2, height: 0.02, depth: h.z * 2 }, this.scene);
+    surface.position.set(w.position.x, w.position.y + h.y, w.position.z);
+    surface.material = this.surfaceMaterial;
+    const c = w.position;
+    const corner = (sx: number, sy: number, sz: number) => new Vector3(c.x + sx * h.x, c.y + sy * h.y, c.z + sz * h.z);
+    const lines: Vector3[][] = [];
+    for (const a of [-1, 1]) {
+      for (const b of [-1, 1]) {
+        lines.push([corner(-1, a, b), corner(1, a, b)], [corner(a, -1, b), corner(a, 1, b)], [corner(a, b, -1), corner(a, b, 1)]);
+      }
+    }
+    const frame = CreateLineSystem(`water-frame-${w.id}`, { lines }, this.scene);
+    frame.color = new Color3(0.45, 0.75, 1);
+    frame.alpha = 0.7;
+    for (const m of [body, surface, frame]) {
+      m.isPickable = false;
+      this.waterMeshes.push(m);
+    }
   }
 
   private rebuildFields(): void {

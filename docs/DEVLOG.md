@@ -1,5 +1,34 @@
 # Development log
 
+## 2026-11-26 - Phase 5: Advanced simulation
+
+### Implemented
+- **Explosions (simulated).** Blast tool: detonate a small, medium or large charge where you aim. A pressure front expands at 120 m/s and each body is hit when the front reaches it, with an impulse proportional to the area it presents and falling with distance; walls block the blast and other objects shield partly. Blasts feed the destruction system.
+- **Water (simulated).** Box-shaped water volumes apply Archimedes buoyancy and drag through the engine, so wood, ice and elastic float at a level set by their density while steel, glass, concrete and plastic sink. Placed with the Field tool; the Test Chamber starts with a tank.
+- **Deformation.** Visual: rubber, elastic and plastic squash along the impact direction in proportion to the measured impact and spring back; only the drawn mesh changes. Simulated: a soft body built from eight elastic spheres and 28 springs, which compresses under load and recovers.
+- **Mechanical.** Slider joints (one axis, 1.5 m travel either way) and spring joints (tuned to 2.5 Hz on the lighter body, running between the two points clicked); torque mode for the Force tool (V).
+- **Particles (visual).** Dust on fracture in the material's colour, sparks on hard impacts, fire and smoke for blasts, splashes on water entry. Systems are pooled per kind; the particle budget follows graphics quality and is cut when the frame rate drops. Blasts also draw a shock ring and shake the camera.
+- HUD: Blast tool, particle counter, updated control guide. README now has a simulated-versus-visual table.
+
+### Tested
+- `npm test`: 78 tests passing (14 new), against real Havok. New checks: blast impulse equals i(r) x A at two distances and arrives with the front; wood is thrown 13x faster than steel of the same shape (density ratio); a pillar blocks a blast, an object shields partly, nothing moves beyond the radius; blasts break glass but not steel; concurrent blast limit; wood and ice float with submerged fraction equal to density / 1000; steel sinks, slowed by drag; one splash event per entry; volume picking and limit; spring frequency within 5 % of 2.5 Hz at 60 and 240 Hz steps, with amplitude and decay bounds; slider keeps off-axis position and orientation and respects its travel; link tool creates a spring between the two clicked points and it survives a material change; torque spins a sphere at tau / I without moving it; visual squash flattens an elastic ball, preserves mesh volume, restores the exact scale, and leaves the collider and mass untouched; the starting tank and soft lattice behave as described.
+- Production build in headless Chrome: torque mode, placing and removing a water volume, spring link kind, a large blast at the crate pyramid (crates thrown and fractured, dust drawn), reset. Phase 1 to 4 scenarios rerun. No console errors or warnings.
+
+### Bugs and findings during the phase
+- Springs came out overdamped: Havok's damping parameter is not in N s/m. Measured its behaviour, added a calibrated scale factor, and test the result at two step sizes.
+- Havok damps very slow bodies before putting them to sleep, so a tiny blast impulse decays within a few steps; tests measure right after the front arrives.
+- My first scripted blast hit nothing: the aim passed through the 2 cm gap between two crates and detonated behind the pyramid. The system was right; the script was wrong.
+
+### Known limitations
+- Water does not flow, pour or slosh; it is a fixed volume with buoyancy and drag. The submerged fraction is estimated from the object's vertical extent.
+- Explosions and water do not affect the player.
+- Blast impulses act at the centre of mass, so a blast does not spin objects by itself.
+- The soft lattice is the only simulated deformable; squash on single objects is visual.
+- Particles keep the default update rate tied to time scale but are not collision-aware (they pass through geometry).
+- Hold-T rotation, the splash, sparks and squash visuals were exercised only through their logic tests or event counters, not judged by eye at real frame rates.
+- Deferred: snapping, non-vertical world gravity, multi-select, prefabricated machines.
+- WebGPU and frame rate on the target laptop remain unverified (see Phase 1 entry).
+
 ## 2026-11-26 - Phase 4: Destruction
 
 ### Implemented

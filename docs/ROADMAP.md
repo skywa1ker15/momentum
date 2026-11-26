@@ -20,12 +20,10 @@ Impact-based fracture driven by material impact strength and hardness; fragments
 
 Simplifications, to revisit in Phase 5: fragments are box-shaped (spheres and cylinders break into box pieces approximating their volume), and there is no dust or spark effect yet.
 
-## Phase 5 - Advanced simulation
-- Particle systems (visual): sparks, dust on fracture, smoke-like volumes, adaptive counts.
-- Explosions: radial impulse on bodies (simulated) plus pressure-wave and flash (visual).
-- Water: particle-based fluid within a bounded budget; clearly labelled simulated vs visual in the UI.
-- Deformation: soft / elastic bodies via constraint lattices; dent-style visual deformation for hard materials.
-- Mechanical machines: slider and spring joints, snapping, torque tool, gears and pistons built on the Phase 3 constraints.
+## Phase 5 - Advanced simulation (complete)
+Pooled particle effects with an adaptive budget; explosions as an expanding pressure front with a Blast tool; water volumes with buoyancy and drag; visual squash of soft materials; a simulated soft body (spring lattice); slider and spring joints; torque mode.
+
+Not done, and why: free-flowing water (a particle fluid) was replaced by buoyancy volumes, which are cheaper and physically checkable; fragments are still box-shaped; no prefabricated gears or pistons; snapping and non-vertical world gravity remain open. These are candidates for Phase 6 where they fit the construction UI, otherwise they stay documented as limitations.
 
 ## Phase 6 - UI and experience
 - Multi-select. Full tool wheel / panels, settings (graphics, controls, sensitivity), environment selector, save / load experiments (JSON, local storage + file export), onboarding, audio.

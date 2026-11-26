@@ -29,6 +29,8 @@ export class TestChamber extends BaseEnvironment {
   /** Top surface of the inclined plane: start (high end) position, used to place rolling props. */
   static readonly RAMP = { x: -11, z: -12, length: 10, width: 4, angle: 0.3, centerY: 1.75 };
   static readonly DECK = { z: 20.5, top: 3.2, width: 16, depth: 7 };
+  /** Water tank on the west side. */
+  static readonly POOL = { center: new Vector3(-13.5, 1, 2.5), half: new Vector3(3, 1, 3) };
 
   build(ctx: EnvironmentContext): void {
     const { scene, materials: m } = ctx;
@@ -87,7 +89,8 @@ export class TestChamber extends BaseEnvironment {
     this.buildObservationDeck(ctx);
   }
 
-  populate({ factory }: PopulateContext): void {
+  populate(ctx: PopulateContext): void {
+    const { factory, water } = ctx;
     // Crate pyramid on the test pad
     const s = 0.8;
     for (let row = 0; row < 4; row++) {
@@ -128,6 +131,22 @@ export class TestChamber extends BaseEnvironment {
     for (let i = 0; i < 4; i++) {
       factory.spawn({ kind: "cylinder", position: new Vector3(-4.5 + i * 0.9, 0.41, 2.5), material: (["glass", "ice", "plastic", "steel"] as const)[i] });
     }
+
+    // Water tank with one object of each kind of behaviour: floats high, floats low, sinks
+    const pool = TestChamber.POOL;
+    water.add(pool.center, pool.half);
+    const surface = pool.center.y + pool.half.y;
+    (["wood", "ice", "steel", "plastic"] as const).forEach((material, i) => {
+      factory.spawn({
+        kind: i === 2 ? "sphere" : "box",
+        size: i === 2 ? new Vector3(0.6, 0.6, 0.6) : new Vector3(0.8, 0.8, 0.8),
+        material,
+        position: new Vector3(pool.center.x - 1.5 + (i % 2) * 3, surface + 0.6, pool.center.z - 1.5 + Math.floor(i / 2) * 3),
+      });
+    });
+
+    // Soft body: elastic spheres joined by springs
+    this.softLattice(ctx, new Vector3(4.5, 0.26, 3.5));
   }
 
   private buildWallDetail({ scene, materials: m }: EnvironmentContext): void {

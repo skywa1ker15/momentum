@@ -57,6 +57,8 @@ export function breakThreshold(obj: SandboxObject, otherHardness: number, intens
 export class DestructionSystem {
   readonly stats: DestructionStats = { fractures: 0, bondsBroken: 0 };
   onFracture: ((parent: SandboxObject, fragments: SandboxObject[], point: Vector3) => void) | null = null;
+  /** Raised after each step for every body whose contacts changed its velocity by more than 1 m/s. `direction` is the unit net impulse. */
+  onImpact: ((obj: SandboxObject, deltaV: number, direction: Vector3, point: Vector3 | null) => void) | null = null;
   /** Index into CONFIG.destruction.levels. */
   level: number = CONFIG.destruction.defaultLevel;
 
@@ -158,7 +160,9 @@ export class DestructionSystem {
       this.contacts.clear();
       for (const c of impacts) {
         const impulse = c.net.length();
-        this.lastDeltaVs.set(c.obj.id, impulse / c.obj.props.mass);
+        const deltaV = impulse / c.obj.props.mass;
+        this.lastDeltaVs.set(c.obj.id, deltaV);
+        if (deltaV > 1) this.onImpact?.(c.obj, deltaV, c.net.scale(1 / impulse), c.point);
         this.registerImpact(c.obj, impulse, c.point, c.hardness);
       }
     }

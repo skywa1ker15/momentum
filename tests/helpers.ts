@@ -10,6 +10,7 @@ import { TestChamber } from "../src/environments/TestChamber";
 import type { LabEnvironment } from "../src/environments/Environment";
 import { JointManager } from "../src/construction/Joints";
 import { DestructionSystem } from "../src/destruction/Destruction";
+import { WaterVolumes } from "../src/fluids/WaterVolumes";
 import { GravityFields } from "../src/fields/GravityFields";
 
 let havok: unknown;
@@ -29,8 +30,9 @@ export async function createLab(populate = false, env: LabEnvironment = new Test
   const fields = new GravityFields(world, factory);
   const joints = new JointManager(scene, factory);
   const destruction = new DestructionSystem(world, factory, joints);
-  if (populate) env.populate({ factory, fields, joints });
-  return { engine, scene, world, materials, env, factory, fields, joints, destruction, dispose: () => { scene.dispose(); engine.dispose(); } };
+  const water = new WaterVolumes(world, factory);
+  if (populate) env.populate({ factory, fields, joints, water });
+  return { engine, scene, world, materials, env, factory, fields, joints, destruction, water, dispose: () => { scene.dispose(); engine.dispose(); } };
 }
 
 export function simulate(world: PhysicsWorld, seconds: number, each?: (dt: number) => void): void {

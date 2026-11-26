@@ -60,7 +60,7 @@ describe("physics world", () => {
 
   it("spheres roll down the inclined plane; the crate pyramid stays standing", async () => {
     const lab = await createLab(true);
-    const spheres = [...lab.factory.all].filter((o) => o.kind === "sphere");
+    const spheres = [...lab.factory.all].filter((o) => o.kind === "sphere" && o.mesh.position.x < -9 && o.mesh.position.z < -10); // the three on the incline
     const crates = [...lab.factory.all].filter((o) => o.kind === "box" && o.mesh.position.z === -6);
     const startZ = spheres.map((s) => s.mesh.position.z);
     const top = crates.reduce((a, b) => (a.mesh.position.y > b.mesh.position.y ? a : b));

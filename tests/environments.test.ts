@@ -23,11 +23,12 @@ describe("environments", () => {
       const meshesBefore = lab.scene.meshes.length;
       env.build({ scene: lab.scene, materials: lab.materials });
       expect(lab.world.bodyCount).toBeGreaterThan(5);
-      env.populate({ factory: lab.factory, fields: lab.fields, joints: lab.joints });
+      env.populate({ factory: lab.factory, fields: lab.fields, joints: lab.joints, water: lab.water });
       expect(lab.factory.count).toBeGreaterThan(5);
       simulate(lab.world, 1);
       for (const o of lab.factory.all) expect(Number.isFinite(o.mesh.position.y)).toBe(true);
       lab.joints.clear();
+      lab.water.clear();
       lab.fields.clear();
       lab.factory.clear();
       env.dispose();

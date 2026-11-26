@@ -13,6 +13,8 @@ import type { MaterialLibrary } from "../render/MaterialLibrary";
 import type { ObjectFactory } from "../objects/ObjectFactory";
 import type { GravityFields } from "../fields/GravityFields";
 import type { JointManager } from "../construction/Joints";
+import type { WaterVolumes } from "../fluids/WaterVolumes";
+import type { SandboxObject } from "../objects/ObjectFactory";
 import type { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 
 export interface EnvironmentContext {
@@ -25,6 +27,7 @@ export interface PopulateContext {
   factory: ObjectFactory;
   fields: GravityFields;
   joints: JointManager;
+  water: WaterVolumes;
 }
 
 export interface LightRig {
@@ -112,6 +115,39 @@ export abstract class BaseEnvironment implements LabEnvironment {
     if (opts.castShadow) this.shadowCasters.push(mesh);
     this.finishStatic(mesh);
     return mesh;
+  }
+
+  /**
+   * Simulated soft body: an n x n x n lattice of elastic spheres joined by springs along
+   * edges and diagonals. It deforms and recovers through the engine's constraints.
+   */
+  protected softLattice({ factory, joints }: PopulateContext, origin: Vector3, n = 2, spacing = 0.62, diameter = 0.5): SandboxObject[] {
+    const nodes: (SandboxObject | null)[] = [];
+    for (let x = 0; x < n; x++) {
+      for (let y = 0; y < n; y++) {
+        for (let z = 0; z < n; z++) {
+          nodes.push(
+            factory.spawn({
+              kind: "sphere",
+              material: "elastic",
+              size: new Vector3(diameter, diameter, diameter),
+              position: origin.add(new Vector3(x * spacing, y * spacing, z * spacing)),
+              props: { angularDamping: 0.6 },
+            }),
+          );
+        }
+      }
+    }
+    const reach = spacing * Math.sqrt(3) + 1e-3; // neighbours up to the body diagonal
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i];
+        const b = nodes[j];
+        if (!a || !b || Vector3.Distance(a.mesh.position, b.mesh.position) > reach) continue;
+        joints.create("spring", a, b.body, b, b.mesh.position, Vector3.Up(), a.mesh.position);
+      }
+    }
+    return nodes.filter((o): o is SandboxObject => o !== null);
   }
 
   /** Static body of a block created by this environment, for joints to the room. */

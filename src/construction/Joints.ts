@@ -7,8 +7,8 @@ import { CONFIG } from "../core/config";
 import { MATERIALS } from "../materials/Materials";
 import type { ObjectFactory, SandboxObject } from "../objects/ObjectFactory";
 
-export type JointKind = "weld" | "hinge" | "ball" | "motor";
-export const JOINT_KINDS: readonly JointKind[] = ["weld", "hinge", "ball", "motor"];
+export type JointKind = "weld" | "hinge" | "ball" | "motor" | "slider" | "spring";
+export const JOINT_KINDS: readonly JointKind[] = ["weld", "hinge", "ball", "motor", "slider", "spring"];
 
 export interface Joint {
   id: number;
@@ -20,6 +20,10 @@ export interface Joint {
   constraint: Physics6DoFConstraint;
   /** Pivot in A's body frame, used to draw the joint marker and to rebuild the joint. */
   localPivotA: Vector3;
+  /** Pivot in B's body frame. Equals the same world point as localPivotA except for springs, whose two ends differ. */
+  localPivotB: Vector3;
+  /** Springs only: rest length (m) and stiffness (N/m). */
+  spring: { restLength: number; stiffness: number; damping: number } | null;
   /** Hinge / motor axis in A's body frame. */
   localAxisA: Vector3;
   /** Motor target, rad/s (motor joints only). */
@@ -64,6 +68,8 @@ function perpendicular(v: Vector3): Vector3 {
  *  hinge - rotation about one axis only
  *  ball  - free rotation about a point
  *  motor - a hinge driven towards a target angular velocity with limited torque
+ *  slider - translation along one axis only, within a travel limit (a piston)
+ *  spring - a damped spring holding two points at their original distance
  */
 export class JointManager {
   readonly onChange: Array<() => void> = [];
@@ -92,35 +98,75 @@ export class JointManager {
   }
 
   /**
-   * Joins `a` to `bBody` at the world-space `pivot`. `axis` (world space) is the hinge / motor axis.
+   * Joins `a` to `bBody` at the world-space `pivot`. `axis` (world space) is the hinge, motor or
+   * slider axis. For a spring, `anchorA` is the end on `a` and `pivot` the end on `bBody`.
    * Returns null at the joint limit or when both sides are the same body.
    */
-  create(kind: JointKind, a: SandboxObject, bBody: PhysicsBody, b: SandboxObject | null, pivot: Vector3, axis: Vector3): Joint | null {
+  create(kind: JointKind, a: SandboxObject, bBody: PhysicsBody, b: SandboxObject | null, pivot: Vector3, axis: Vector3, anchorA: Vector3 = pivot): Joint | null {
     if (this.atLimit || a.body === bBody) return null;
     const n = axis.lengthSquared() > 1e-6 ? axis.normalizeToNew() : Vector3.Up();
     const perp = perpendicular(n);
-    const localPivotA = toLocalPoint(a.body, pivot);
+    const pointA = kind === "spring" ? anchorA : pivot;
+    const localPivotA = toLocalPoint(a.body, pointA);
+    const localPivotB = toLocalPoint(bBody, pivot);
+
+    let limits: Array<{ axis: PhysicsConstraintAxis; minLimit?: number; maxLimit?: number; stiffness?: number; damping?: number }>;
+    let spring: Joint["spring"] = null;
+    if (kind === "spring") {
+      const restLength = Math.max(0.05, Vector3.Distance(pointA, pivot));
+      // Tuned to the lighter side: natural frequency and damping ratio from config.
+      const mass = b ? Math.min(a.props.mass, b.props.mass) : a.props.mass;
+      const omega = 2 * Math.PI * CONFIG.joints.springFrequency;
+      const stiffness = mass * omega * omega;
+      const damping = 2 * CONFIG.joints.springDampingRatio * Math.sqrt(stiffness * mass) * CONFIG.joints.springDampingScale;
+      spring = { restLength, stiffness, damping };
+      limits = [{ axis: PhysicsConstraintAxis.LINEAR_DISTANCE, minLimit: restLength, maxLimit: restLength, stiffness, damping }];
+    } else if (kind === "slider") {
+      const travel = CONFIG.joints.sliderTravel;
+      limits = [
+        { axis: PhysicsConstraintAxis.LINEAR_X, minLimit: -travel, maxLimit: travel },
+        { axis: PhysicsConstraintAxis.LINEAR_Y, minLimit: 0, maxLimit: 0 },
+        { axis: PhysicsConstraintAxis.LINEAR_Z, minLimit: 0, maxLimit: 0 },
+        ...ANGULAR.map((ax) => ({ axis: ax, minLimit: 0, maxLimit: 0 })),
+      ];
+    } else {
+      limits = [
+        ...LINEAR.map((ax) => ({ axis: ax, minLimit: 0, maxLimit: 0 })),
+        // The constraint's X axis is the hinge axis. Weld locks it too; ball frees all three.
+        ...ANGULAR.filter((ax) => (kind === "weld" ? true : kind === "ball" ? false : ax !== PhysicsConstraintAxis.ANGULAR_X)).map((ax) => ({ axis: ax, minLimit: 0, maxLimit: 0 })),
+      ];
+    }
 
     const constraint = new Physics6DoFConstraint(
       {
         pivotA: localPivotA,
-        pivotB: toLocalPoint(bBody, pivot),
+        pivotB: localPivotB,
         axisA: toLocalDir(a.body, n),
         axisB: toLocalDir(bBody, n),
         perpAxisA: toLocalDir(a.body, perp),
         perpAxisB: toLocalDir(bBody, perp),
-        collision: false,
+        // Springs leave their bodies free to collide; rigid joints would fight their own contact.
+        collision: kind === "spring",
       },
-      [
-        ...LINEAR.map((axis) => ({ axis, minLimit: 0, maxLimit: 0 })),
-        // The constraint's X axis is the hinge axis. Weld locks it too; ball frees all three.
-        ...ANGULAR.filter((ax) => (kind === "weld" ? true : kind === "ball" ? false : ax !== PhysicsConstraintAxis.ANGULAR_X)).map((axis) => ({ axis, minLimit: 0, maxLimit: 0 })),
-      ],
+      limits,
       this.scene,
     );
     a.body.addConstraint(bBody, constraint);
 
-    const joint: Joint = { id: this.nextId++, kind, a, bBody, b, constraint, localPivotA, localAxisA: toLocalDir(a.body, n), motorSpeed: 0, breakSpeed: kind === "weld" ? bondStrength(a, b) : null };
+    const joint: Joint = {
+      id: this.nextId++,
+      kind,
+      a,
+      bBody,
+      b,
+      constraint,
+      localPivotA,
+      localPivotB,
+      spring,
+      localAxisA: toLocalDir(a.body, n),
+      motorSpeed: 0,
+      breakSpeed: kind === "weld" ? bondStrength(a, b) : null,
+    };
     this.joints.push(joint);
     if (kind === "motor") this.setMotorSpeed(joint, CONFIG.joints.defaultMotorSpeed);
     this.changed();
@@ -137,6 +183,11 @@ export class JointManager {
     c.setAxisMotorTarget(PhysicsConstraintAxis.ANGULAR_X, s);
     c.setAxisMotorMaxForce(PhysicsConstraintAxis.ANGULAR_X, CONFIG.joints.motorMaxTorque);
     joint.a.body.applyImpulse(Vector3.ZeroReadOnly as Vector3, joint.a.mesh.position); // wake
+  }
+
+  /** World position of the joint's end on body B (differs from the pivot on A only for springs). */
+  pivotWorldB(joint: Joint, out: Vector3): Vector3 {
+    return joint.localPivotB.rotateByQuaternionToRef(bodyRotation(joint.bBody), out).addInPlace(joint.bBody.transformNode.position);
   }
 
   /** World position of a joint's pivot (follows body A). */
@@ -167,12 +218,14 @@ export class JointManager {
   private rebuildFor(obj: SandboxObject): void {
     for (const old of this.jointsOf(obj)) {
       const rot = bodyRotation(old.a.body);
-      const pivot = old.localPivotA.rotateByQuaternionToRef(rot, new Vector3()).addInPlace(old.a.mesh.position);
+      const anchorA = old.localPivotA.rotateByQuaternionToRef(rot, new Vector3()).addInPlace(old.a.mesh.position);
       const axis = old.localAxisA.rotateByQuaternionToRef(rot, new Vector3());
       this.joints.splice(this.joints.indexOf(old), 1);
       old.constraint.dispose();
       const bBody = old.b ? old.b.body : old.bBody;
-      const fresh = this.create(old.kind, old.a, bBody, old.b, pivot, axis);
+      // The rebuilt side keeps its transform, so B's stored local pivot still maps to the right world point.
+      const pivot = old.kind === "spring" ? old.localPivotB.rotateByQuaternionToRef(bodyRotation(bBody), new Vector3()).addInPlace(bBody.transformNode.position) : anchorA;
+      const fresh = this.create(old.kind, old.a, bBody, old.b, pivot, axis, anchorA);
       if (fresh && old.kind === "motor") this.setMotorSpeed(fresh, old.motorSpeed);
     }
     this.changed();

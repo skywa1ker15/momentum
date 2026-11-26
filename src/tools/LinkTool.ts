@@ -1,4 +1,4 @@
-import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CONFIG } from "../core/config";
 import { JOINT_KINDS, type Joint, type JointKind, type JointManager } from "../construction/Joints";
 import type { ObjectFactory, SandboxObject } from "../objects/ObjectFactory";
@@ -6,15 +6,27 @@ import type { PhysicsWorld } from "../physics/PhysicsWorld";
 
 export type LinkResult = { status: "first"; object: SandboxObject } | { status: "joined"; joint: Joint } | { status: "cancelled" } | { status: "none" } | { status: "limit" };
 
+function toLocal(obj: SandboxObject, world: Vector3): Vector3 {
+  const q = Quaternion.Inverse(obj.mesh.rotationQuaternion ?? Quaternion.Identity());
+  return world.subtract(obj.mesh.position).rotateByQuaternionToRef(q, new Vector3());
+}
+
+function toWorld(obj: SandboxObject, local: Vector3): Vector3 {
+  return local.rotateByQuaternionToRef(obj.mesh.rotationQuaternion ?? Quaternion.Identity(), new Vector3()).addInPlace(obj.mesh.position);
+}
+
 /**
  * Joins bodies in two clicks: first an object, then another object or the static world.
- * The joint is created at the second point clicked; hinge and motor axes follow the
+ * The joint is created at the second point clicked; hinge, motor and slider axes follow the
  * surface normal there (an axle through that point, perpendicular to the surface).
+ * A spring runs from the first point clicked to the second.
  */
 export class LinkTool {
   kindIndex = 0;
   /** First body picked, waiting for the second click. */
   pending: SandboxObject | null = null;
+  /** Where the first body was clicked, in its own frame (the spring's end on that body). */
+  private pendingLocal = new Vector3();
 
   constructor(
     private readonly world: PhysicsWorld,
@@ -48,12 +60,13 @@ export class LinkTool {
     if (!this.pending) {
       if (!obj) return { status: "none" };
       this.pending = obj;
+      this.pendingLocal = toLocal(obj, hit.point);
       return { status: "first", object: obj };
     }
     const a = this.pending;
     this.pending = null;
     if (obj === a) return { status: "cancelled" };
-    const joint = this.joints.create(this.kind, a, hit.body, obj, hit.point, hit.normal);
+    const joint = this.joints.create(this.kind, a, hit.body, obj, hit.point, hit.normal, toWorld(a, this.pendingLocal));
     return joint ? { status: "joined", joint } : { status: "limit" };
   }
 

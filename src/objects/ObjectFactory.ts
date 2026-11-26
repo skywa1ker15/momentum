@@ -88,6 +88,11 @@ const DEFAULT_SIZE: Record<PrimitiveKind, Vector3> = {
   cylinder: new Vector3(0.5, 0.8, 0.5),
 };
 
+/** Mesh scaling that turns the unit source mesh into a primitive of the given size. */
+export function meshScaling(kind: PrimitiveKind, size: Vector3): Vector3 {
+  return kind === "sphere" ? new Vector3(size.x, size.x, size.x) : kind === "cylinder" ? new Vector3(size.x, size.y, size.x) : size.clone();
+}
+
 export function primitiveVolume(kind: PrimitiveKind, size: Vector3): number {
   switch (kind) {
     case "box":
@@ -183,7 +188,7 @@ export class ObjectFactory {
   private build(id: number, kind: PrimitiveKind, size: Vector3, materialId: MaterialId, position: Vector3, rotation: Quaternion) {
     const def = MATERIALS[materialId];
     const mesh = this.source(kind, materialId).createInstance(`obj-${id}-${kind}`);
-    mesh.scaling.copyFrom(kind === "sphere" ? new Vector3(size.x, size.x, size.x) : kind === "cylinder" ? new Vector3(size.x, size.y, size.x) : size);
+    mesh.scaling.copyFrom(meshScaling(kind, size));
     mesh.position.copyFrom(position);
     mesh.rotationQuaternion = rotation.clone();
     mesh.metadata = { sandboxId: id };

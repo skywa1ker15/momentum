@@ -14,6 +14,8 @@ export class ForceTool {
   level: number = CONFIG.force.defaultLevel;
   /** Object currently being pushed by the continuous force, if any. */
   target: SandboxObject | null = null;
+  /** "force" pushes at the aimed point; "torque" twists the body about the view direction. */
+  mode: "force" | "torque" = "force";
 
   private readonly localPoint = new Vector3();
   private readonly direction = new Vector3(0, 0, 1);
@@ -40,6 +42,16 @@ export class ForceTool {
   /** Impulse magnitude, N s: the selected force acting for CONFIG.force.impulseDuration seconds. */
   get impulse(): number {
     return this.force * CONFIG.force.impulseDuration;
+  }
+
+  /** Torque magnitude, N m: the selected force acting on a 1 m lever arm. */
+  get torque(): number {
+    return this.force;
+  }
+
+  toggleMode(): void {
+    this.end();
+    this.mode = this.mode === "force" ? "torque" : "force";
   }
 
   adjustLevel(steps: number): void {
@@ -70,6 +82,11 @@ export class ForceTool {
   strike(eye: Vector3, dir: Vector3): SandboxObject | null {
     const hit = this.pick(eye, dir);
     if (!hit) return null;
+    if (this.mode === "torque") {
+      // Angular impulse about the view direction: the selected torque acting for the impulse duration.
+      hit.obj.body.applyAngularImpulse(dir.scale(this.torque * CONFIG.force.impulseDuration));
+      return hit.obj;
+    }
     hit.obj.body.applyImpulse(dir.scale(this.impulse), hit.point);
     // The strike acts like a hard (steel-like) striker.
     this.destruction?.registerImpact(hit.obj, this.impulse, hit.point, 5);
@@ -98,6 +115,7 @@ export class ForceTool {
   private apply(): void {
     const point = this.applicationPoint();
     if (!point || !this.target) return;
-    this.target.body.applyForce(this.direction.scale(this.force), point);
+    if (this.mode === "torque") this.target.body.applyTorque(this.direction.scale(this.torque));
+    else this.target.body.applyForce(this.direction.scale(this.force), point);
   }
 }

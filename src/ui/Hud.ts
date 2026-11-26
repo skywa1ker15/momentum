@@ -9,6 +9,7 @@ export interface HudStats {
   objectLimit: number;
   debris: number;
   fractures: number;
+  particles: number;
   bodies: number;
   backend: string;
   quality: string;
@@ -26,9 +27,10 @@ const CONTROLS: Array<[string, Array<[string, string]>]> = [
   ["Movement", [["W A S D", "Move"], ["Mouse", "Look"], ["Shift", "Sprint"], ["Space", "Jump"]]],
   ["Objects", [["1 2 3", "Choose shape"], ["M N", "Next / previous material"], ["F", "Spawn chosen shape"], ["E", "Select / deselect for inspection"], ["C", "Duplicate selected or targeted"], ["X", "Delete targeted or held"]]],
   ["Hand tool", [["Hold LMB", "Grab and carry"], ["Scroll", "Push / pull held object"], ["Hold T", "Turn held object with the mouse"], ["RMB", "Throw held / push target"]]],
-  ["Force tool", [["Hold LMB", "Apply continuous force at the point aimed at"], ["RMB", "Strike with an impulse"], ["Scroll", "Change force magnitude"]]],
-  ["Field tool", [["LMB", "Place attractor, repulsor or gravity zone"], ["RMB", "Remove the field aimed at"], ["Scroll", "Change field type"], ["V", "Change field strength"]]],
-  ["Link tool", [["LMB LMB", "Join an object to another object or to the room"], ["RMB", "Remove joints on target / cancel"], ["Scroll", "Weld, hinge, ball or motor"]]],
+  ["Force tool", [["Hold LMB", "Apply continuous force (or torque) at the point aimed at"], ["RMB", "Strike with an impulse"], ["Scroll", "Change magnitude"], ["V", "Switch between force and torque"]]],
+  ["Field tool", [["LMB", "Place attractor, repulsor, gravity zone or water volume"], ["RMB", "Remove the one aimed at"], ["Scroll", "Change type"], ["V", "Change field strength"]]],
+  ["Link tool", [["LMB LMB", "Join an object to another object or to the room"], ["RMB", "Remove joints on target / cancel"], ["Scroll", "Weld, hinge, ball, motor, slider or spring"]]],
+  ["Blast tool", [["LMB", "Detonate a charge where you aim"], ["Scroll", "Charge size"]]],
   ["Simulation", [["P", "Pause / resume"], ["[  ]", "Slower / faster"], ["R", "Reset experiment"], ["F4", "Next environment"], ["B", "Destruction intensity: off, low, normal, high"]]],
   ["Interface", [["Q", "Next tool"], ["Tab", "Edit mode: free the mouse to edit properties"], ["H", "Toggle this guide"], ["F2", "Cycle graphics quality"], ["Esc", "Release mouse"]]],
 ];
@@ -76,7 +78,7 @@ export class Hud {
     this.root.appendChild(this.simPill);
 
     const telemetry = el("div", "panel telemetry");
-    for (const [key, label] of [["fps", "FPS"], ["frame", "Frame"], ["objects", "Objects"], ["debris", "Debris"], ["bodies", "Bodies"], ["backend", "Renderer"], ["quality", "Quality"]]) {
+    for (const [key, label] of [["fps", "FPS"], ["frame", "Frame"], ["objects", "Objects"], ["debris", "Debris"], ["particles", "Particles"], ["bodies", "Bodies"], ["backend", "Renderer"], ["quality", "Quality"]]) {
       const row = el("div", "stat-row");
       const value = el("span", "stat-value", "-");
       row.append(el("span", "stat-label", label), value);
@@ -197,6 +199,7 @@ export class Hud {
     this.stat.frame.textContent = `${s.frameMs.toFixed(1)} ms`;
     this.stat.objects.textContent = `${s.objects} / ${s.objectLimit}`;
     this.stat.debris.textContent = `${s.debris} · ${s.fractures} breaks`;
+    this.stat.particles.textContent = String(s.particles);
     this.stat.bodies.textContent = String(s.bodies);
     this.stat.backend.textContent = s.backend;
     this.stat.quality.textContent = s.quality;

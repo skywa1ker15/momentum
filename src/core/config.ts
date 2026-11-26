@@ -69,6 +69,42 @@ export const CONFIG = {
     maxMotorSpeed: 20,
     /** N m */
     motorMaxTorque: 20000,
+    /** Slider travel either side of where it was created, m. */
+    sliderTravel: 1.5,
+    /** Spring natural frequency (Hz) and damping ratio, relative to the lighter body it joins. */
+    springFrequency: 2.5,
+    springDampingRatio: 0.15,
+    /**
+     * Havok's spring stiffness is in N/m (measured: frequency and amplitude match the ideal spring),
+     * but its damping parameter is not N s/m: it damps several times harder. This factor was
+     * calibrated by measurement so the configured damping ratio gives a lightly damped oscillation.
+     */
+    springDampingScale: 1 / 6,
+  },
+  explosion: {
+    /** [name, impulse per unit area at 1 m (N s / m^2), reach (m)] */
+    levels: [
+      ["Small", 2500, 6],
+      ["Medium", 9000, 10],
+      ["Large", 30000, 16],
+    ] as ReadonlyArray<readonly [string, number, number]>,
+    defaultLevel: 1,
+    /** Speed of the pressure front, m/s. Impulses are applied when the front reaches each body. */
+    waveSpeed: 120,
+    /** Closest distance used in the 1/r^2 law, m. */
+    minDistance: 0.6,
+    /** Share of the blast that reaches a body hidden behind another object. */
+    shieldedFactor: 0.3,
+    maxActiveWaves: 6,
+  },
+  water: {
+    maxVolumes: 3,
+    /** kg/m^3 */
+    density: 1000,
+    dragCoefficient: 1.0,
+    /** Angular velocity lost per second when fully submerged (1/s). */
+    angularDrag: 2.5,
+    halfExtents: [3, 1.2, 3] as readonly [number, number, number],
   },
   destruction: {
     /** Selectable intensity levels. Break thresholds are divided by the multiplier; 0 disables destruction. */

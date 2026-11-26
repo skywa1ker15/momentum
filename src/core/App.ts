@@ -15,6 +15,11 @@ import { FieldTool } from "../tools/FieldTool";
 import { LinkTool } from "../tools/LinkTool";
 import { FieldVisuals } from "../render/FieldVisuals";
 import { DestructionSystem } from "../destruction/Destruction";
+import { ExplosionSystem } from "../effects/Explosions";
+import { Deformation } from "../effects/Deformation";
+import { WaterVolumes } from "../fluids/WaterVolumes";
+import { Effects } from "../render/Effects";
+import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { MATERIALS, MATERIAL_ORDER, DEFAULT_MATERIAL, type MaterialId } from "../materials/Materials";
 import { ObjectFactory, PRIMITIVE_KINDS, type PrimitiveKind, type SandboxObject } from "../objects/ObjectFactory";
 import { PlayerController, type MoveIntent } from "../player/PlayerController";
@@ -28,8 +33,10 @@ import { VectorOverlay } from "../render/VectorOverlay";
 import { Hud, type HudMode } from "../ui/Hud";
 import { mass as formatMass, si } from "../ui/format";
 
-export type ToolId = "hand" | "force" | "field" | "link";
-const TOOLS: readonly ToolId[] = ["hand", "force", "field", "link"];
+export type ToolId = "hand" | "force" | "field" | "link" | "blast";
+const TOOLS: readonly ToolId[] = ["hand", "force", "field", "link", "blast"];
+/** Particle budget per graphics quality. */
+const FX_BUDGET: Record<QualityLevel, number> = { low: 0.4, medium: 0.75, high: 1 };
 
 const QUALITY_KEY = "momentum.quality";
 const IDLE: MoveIntent = { forward: 0, strafe: 0, sprint: false, jump: false };
@@ -58,6 +65,10 @@ export class App {
   readonly fieldTool: FieldTool;
   readonly linkTool: LinkTool;
   readonly destruction: DestructionSystem;
+  readonly explosions: ExplosionSystem;
+  readonly water: WaterVolumes;
+  readonly deformation: Deformation;
+  readonly effects: Effects;
   environment: LabEnvironment;
   selectedMaterial: MaterialId = DEFAULT_MATERIAL;
   tool: ToolId = "hand";
@@ -74,6 +85,8 @@ export class App {
   private readonly fieldVisuals: FieldVisuals;
   private readonly materials: MaterialLibrary;
   private pendingEdit = false;
+  /** Camera shake amplitude in metres (visual), decays every frame. */
+  private shake = 0;
   private frame = 0;
   private baseFov = 1.12;
 
@@ -114,14 +127,19 @@ export class App {
     this.fields = new GravityFields(this.world, this.factory);
     this.joints = new JointManager(this.scene, this.factory);
     this.destruction = new DestructionSystem(this.world, this.factory, this.joints, Date.now() & 0xffff);
-    this.fieldVisuals = new FieldVisuals(this.scene, this.fields, this.joints, materials);
-    this.environment.populate({ factory: this.factory, fields: this.fields, joints: this.joints });
+    this.explosions = new ExplosionSystem(this.world, this.factory, this.destruction);
+    this.water = new WaterVolumes(this.world, this.factory);
+    this.deformation = new Deformation(this.factory);
+    this.effects = new Effects(this.scene);
+    this.fieldVisuals = new FieldVisuals(this.scene, this.fields, this.joints, materials, this.water);
+    this.wireEffects();
+    this.environment.populate({ factory: this.factory, fields: this.fields, joints: this.joints, water: this.water });
 
     this.player = new PlayerController(this.scene, this.environment.spawnPoint, this.environment.spawnYaw);
     this.grab = new GrabTool(this.world, this.factory);
     this.force = new ForceTool(this.world, this.factory, this.destruction);
     this.selection = new Selection(this.factory);
-    this.fieldTool = new FieldTool(this.world, this.fields);
+    this.fieldTool = new FieldTool(this.world, this.fields, this.water);
     this.linkTool = new LinkTool(this.world, this.factory, this.joints);
     this.overlay = new VectorOverlay(this.scene);
 
@@ -233,6 +251,37 @@ export class App {
     this.loadEnvironment(ENVIRONMENTS[(i + 1) % ENVIRONMENTS.length].id);
   }
 
+  /** Detonates a blast where the player is aiming (just off the surface hit, or 8 m ahead in free space). */
+  detonateAimed(): boolean {
+    const eye = this.player.eyePosition;
+    const dir = this.player.viewDirection;
+    const hit = this.world.raycast(eye, eye.add(dir.scale(40)));
+    const point = hit ? hit.point.add(hit.normal.scale(0.25)) : eye.add(dir.scale(8));
+    if (this.explosions.detonate(point)) return true;
+    this.hud.toast("Too many blasts in progress");
+    return false;
+  }
+
+  /** Connects simulation events to their visual effects. */
+  private wireEffects(): void {
+    this.destruction.onFracture = (parent, fragments, point) => {
+      const c = MATERIALS[parent.materialId].look.color;
+      this.effects.burst("dust", point, 14 + fragments.length * 3, new Color3(c[0], c[1], c[2]), Math.cbrt(parent.props.mass / 300));
+    };
+    this.destruction.onImpact = (obj, deltaV, direction, point) => {
+      this.deformation.impact(obj, deltaV, direction);
+      if (deltaV > 6 && point && MATERIALS[obj.materialId].hardness >= 4) this.effects.burst("sparks", point, Math.min(40, deltaV * 2.5));
+    };
+    this.explosions.onDetonate = (wave) => {
+      this.effects.explosion(wave);
+      const distance = Vector3.Distance(wave.center, this.player.eyePosition);
+      this.shake = Math.min(0.35, this.shake + (wave.radius / 10) * (1.6 / (1 + distance)));
+    };
+    this.water.onSplash = (obj, point, speed) => {
+      if (speed > 1) this.effects.burst("splash", point, Math.min(60, 10 + speed * 5), undefined, Math.cbrt(obj.props.mass / 200));
+    };
+  }
+
   setDestructionLevel(level: number): void {
     this.destruction.setLevel(level);
     this.hud.inspector.setDestructionLevel(this.destruction.level);
@@ -284,11 +333,15 @@ export class App {
   private toolDetail(): string {
     switch (this.tool) {
       case "force":
-        return `${si(this.force.force, "N")} · ${si(this.force.impulse, "N·s")}`;
+        return this.force.mode === "torque" ? `torque ${si(this.force.torque, "N·m")}` : `${si(this.force.force, "N")} · ${si(this.force.impulse, "N·s")}`;
       case "field":
-        return this.fieldTool.kind === "zone" ? "zone · gravity along view" : `${this.fieldTool.kind} · μ ${this.fieldTool.strength} m³/s²`;
+        if (this.fieldTool.kind === "zone") return "zone · gravity along view";
+        if (this.fieldTool.kind === "water") return "water volume";
+        return `${this.fieldTool.kind} · μ ${this.fieldTool.strength} m³/s²`;
       case "link":
         return this.linkTool.pending ? `${this.linkTool.kind} · pick second body` : this.linkTool.kind;
+      case "blast":
+        return `${this.explosions.levelName} charge`;
       default:
         return this.grab.held ? "hold T to turn" : "";
     }
@@ -323,6 +376,8 @@ export class App {
     this.selection.select(null);
     this.joints.clear();
     this.fields.clear();
+    this.water.clear();
+    this.explosions.clear();
     this.factory.clear();
     this.destruction.stats.fractures = 0;
     this.destruction.stats.bondsBroken = 0;
@@ -331,7 +386,7 @@ export class App {
   /** Populates the current environment and puts the player and world back to their starting state. */
   private startExperiment(): void {
     this.setGravity(this.environment.gravityY);
-    this.environment.populate({ factory: this.factory, fields: this.fields, joints: this.joints });
+    this.environment.populate({ factory: this.factory, fields: this.fields, joints: this.joints, water: this.water });
     this.player.teleport(this.environment.spawnPoint, this.environment.spawnYaw);
     this.world.paused = false;
     this.world.timeScale = 1;
@@ -404,9 +459,16 @@ export class App {
     if (this.grab.held) this.grab.setHoldPoint(eye, dir);
     if (this.force.target) this.force.setDirection(dir);
 
-    this.world.step(dt);
+    const simDt = this.world.step(dt);
+    this.deformation.update(simDt);
+    this.effects.update(this.explosions.waves, this.world.paused ? 0 : this.world.timeScale);
 
-    if (++this.frame % 30 === 0) this.factory.cullOutOfBounds();
+    if (++this.frame % 30 === 0) {
+      this.factory.cullOutOfBounds();
+      // Adaptive particle budget: quality preset, halved when the frame rate sags.
+      const fps = this.engine.getFps();
+      this.effects.budget = FX_BUDGET[this.quality] * (fps < 25 ? 0.25 : fps < 42 ? 0.5 : 1);
+    }
 
     const active = this.grab.held ?? this.force.target;
     const target = active ?? (locked ? this.pickObject() : null);
@@ -422,7 +484,7 @@ export class App {
     } else {
       this.overlay.setVelocity(null);
     }
-    const forcePoint = this.force.applicationPoint();
+    const forcePoint = this.force.mode === "force" ? this.force.applicationPoint() : null;
     this.overlay.setForce(forcePoint, this.force.forceDirection, (this.force.level + 1) / CONFIG.force.magnitudes.length);
     this.hud.update(
       {
@@ -430,6 +492,7 @@ export class App {
         frameMs: this.engine.getDeltaTime(),
         objects: this.factory.count,
         debris: this.factory.debrisCount,
+        particles: this.effects.activeParticles,
         fractures: this.destruction.stats.fractures,
         objectLimit: CONFIG.limits.maxObjects,
         bodies: this.world.bodyCount,
@@ -459,8 +522,11 @@ export class App {
     if (input.wasPressed("KeyN")) this.cycleMaterial(-1);
     if (input.wasPressed("F4")) this.nextEnvironment();
     if (input.wasPressed("KeyB")) this.setDestructionLevel((this.destruction.level + 1) % CONFIG.destruction.levels.length);
-    if (this.tool === "field") {
-      if (input.wasPressed("Mouse0") && !this.fieldTool.place(eye, dir)) this.hud.toast(`Field limit reached (${CONFIG.fields.maxFields})`);
+    if (this.tool === "blast") {
+      if (input.wasPressed("Mouse0")) this.detonateAimed();
+      if (input.wheel !== 0) this.explosions.adjustLevel(-input.wheel);
+    } else if (this.tool === "field") {
+      if (input.wasPressed("Mouse0") && !this.fieldTool.place(eye, dir)) this.hud.toast(this.fieldTool.kind === "water" ? `Water volume limit reached (${CONFIG.water.maxVolumes})` : `Field limit reached (${CONFIG.fields.maxFields})`);
       if (input.wasPressed("Mouse2")) this.fieldTool.removeAimed(eye, dir);
       if (input.wheel !== 0) this.fieldTool.cycleKind(input.wheel);
       if (input.wasPressed("KeyV")) this.fieldTool.cycleStrength();
@@ -486,6 +552,7 @@ export class App {
       if (input.wasReleased("Mouse0")) this.force.end();
       if (input.wasPressed("Mouse2")) this.force.strike(eye, dir);
       if (input.wheel !== 0) this.force.adjustLevel(-input.wheel);
+      if (input.wasPressed("KeyV")) this.force.toggleMode();
     }
     if (input.wasPressed("KeyE")) this.selectTarget();
     if (input.wasPressed("KeyC")) this.duplicateSelected();
@@ -504,6 +571,11 @@ export class App {
     const k = 1 - Math.exp(-22 * dt);
     const y = Math.abs(eye.y - cam.position.y) > 1.5 ? eye.y : cam.position.y + (eye.y - cam.position.y) * k;
     cam.position.set(eye.x, y, eye.z);
+    if (this.shake > 0.002) {
+      // Visual only: the player body does not move.
+      cam.position.addInPlaceFromFloats((Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake);
+      this.shake *= Math.exp(-9 * dt);
+    }
     cam.rotationQuaternion = this.player.viewRotation();
     const targetFov = this.baseFov + (sprinting ? 0.07 : 0);
     cam.fov += (targetFov - cam.fov) * (1 - Math.exp(-8 * dt));
