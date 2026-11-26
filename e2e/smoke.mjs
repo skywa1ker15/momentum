@@ -162,6 +162,22 @@ await page.setViewport({ width: 1280, height: 720 });
 await sleep(800);
 await shot("play-1280");
 
+// --- mouse capture refused: the lab must still start (arrow-key look)
+await app(() => document.exitPointerLock());
+await sleep(800);
+await app(() => { HTMLCanvasElement.prototype.requestPointerLock = () => Promise.reject(new Error("denied")); });
+await page.click(".nav-enter");
+await sleep(800);
+check("Resume works when mouse capture is refused", await app(() => window.__momentum.mode === "play" && window.__momentum.input.fallback));
+const yaw0 = await app(() => window.__momentum.player.yaw ?? 0);
+await page.keyboard.down("ArrowRight");
+await sleep(800);
+await page.keyboard.up("ArrowRight");
+const yaw1 = await app(() => window.__momentum.player.yaw ?? 0);
+check("arrow keys turn the view in fallback mode", yaw0 !== yaw1, `${yaw0} -> ${yaw1}`);
+await key("Escape", 600);
+check("Esc returns to the menu in fallback mode", await app(() => window.__momentum.mode === "menu"));
+
 check("no console errors or warnings", consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" | "));
 await browser.close();
 console.log(problems.length ? `\n${problems.length} check(s) failed` : "\nall checks passed");

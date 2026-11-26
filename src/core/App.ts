@@ -171,6 +171,10 @@ export class App {
     this.hud.menu.setActiveRenderer(backend === "WebGPU" ? "webgpu" : "webgl2");
     wireMenu(this);
     this.applySettings();
+    this.input.onLockProblem = (message) => {
+      this.hud.menu.setStatus(message, true);
+      window.setTimeout(() => this.hud.toast(message), 100);
+    };
     this.input.onLockChange = (locked) => {
       this.mode = locked ? "play" : this.pendingEdit ? "edit" : "menu";
       this.pendingEdit = false;

@@ -8,6 +8,11 @@ export class InputManager {
   /** While the pointer is free: should Tab be taken as a command (true) or left to move focus (false)? */
   captureTab: () => boolean = () => false;
 
+  /** True when pointer lock is unavailable or refused: the game runs with a free cursor and arrow-key look. */
+  fallback = false;
+  /** Set when the browser refused pointer lock (for a message in the menu). */
+  onLockProblem: ((message: string) => void) | null = null;
+  private lastFrame = performance.now();
   private readonly down = new Set<string>();
   private readonly pressed = new Set<string>();
   private readonly released = new Set<string>();
@@ -15,6 +20,10 @@ export class InputManager {
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.listen(window, "keydown", (e) => {
+      if (this.fallback && e.code === "Escape") {
+        this.exitLock();
+        return;
+      }
       if (!this.locked) {
         // Only the global keys work while the pointer is free (start screen, edit mode).
         if (e.code !== "KeyH" && e.code !== "Tab" && e.code !== "Escape") return;
@@ -22,6 +31,7 @@ export class InputManager {
         // Do not steal H from a focused text field.
         if (e.code === "KeyH" && e.target instanceof HTMLInputElement && e.target.type !== "range" && e.target.type !== "checkbox") return;
       }
+      if (this.fallback && e.code.startsWith("Arrow")) e.preventDefault();
       if (e.code === "Tab" || e.code === "Space" || e.code.startsWith("F")) {
         if (e.code !== "F5" && e.code !== "F11" && e.code !== "F12") e.preventDefault();
       }
@@ -35,7 +45,7 @@ export class InputManager {
     });
     this.listen(window, "mouseup", (e) => this.release(`Mouse${e.button}`));
     this.listen(document, "mousemove", (e) => {
-      if (!this.locked) return;
+      if (document.pointerLockElement !== this.canvas) return;
       this.lookX += e.movementX;
       this.lookY += e.movementY;
     });
@@ -45,6 +55,7 @@ export class InputManager {
       this.wheel += Math.sign(e.deltaY);
     }, { passive: false });
     this.listen(canvas, "contextmenu", (e) => e.preventDefault());
+    this.listen(document, "pointerlockerror", () => this.enterFallback("The browser refused mouse capture."));
     this.listen(document, "pointerlockchange", () => {
       if (!this.locked) this.releaseAll();
       this.onLockChange?.(this.locked);
@@ -53,20 +64,38 @@ export class InputManager {
   }
 
   get locked(): boolean {
-    return document.pointerLockElement === this.canvas;
+    return this.fallback || document.pointerLockElement === this.canvas;
   }
 
   requestLock(): void {
     if (this.locked) return;
     this.canvas.focus();
-    const result = this.canvas.requestPointerLock() as Promise<void> | undefined;
-    result?.catch?.(() => {
-      /* user gesture missing or lock denied: the overlay stays up */
-    });
+    if (typeof this.canvas.requestPointerLock !== "function") {
+      this.enterFallback("This browser cannot capture the mouse.");
+      return;
+    }
+    try {
+      const result = this.canvas.requestPointerLock() as Promise<void> | undefined;
+      result?.catch?.(() => this.enterFallback("The browser refused mouse capture."));
+    } catch {
+      this.enterFallback("The browser refused mouse capture.");
+    }
   }
 
   exitLock(): void {
-    if (this.locked) document.exitPointerLock();
+    if (this.fallback) {
+      this.fallback = false;
+      this.releaseAll();
+      this.onLockChange?.(false);
+    } else if (this.locked) document.exitPointerLock();
+  }
+
+  /** Mouse capture is not available: play with a free cursor, looking with the arrow keys. */
+  private enterFallback(reason: string): void {
+    if (this.fallback || document.pointerLockElement === this.canvas) return;
+    this.fallback = true;
+    this.onLockProblem?.(`${reason} Playing without it: look with the arrow keys, Esc opens the menu.`);
+    this.onLockChange?.(true);
   }
 
   isDown(code: string): boolean {
@@ -92,6 +121,13 @@ export class InputManager {
     this.lookX = 0;
     this.lookY = 0;
     this.wheel = 0;
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
+    this.lastFrame = now;
+    if (this.fallback) {
+      this.lookX = this.axis("ArrowLeft", "ArrowRight") * 420 * dt;
+      this.lookY = this.axis("ArrowUp", "ArrowDown") * 420 * dt;
+    }
   }
 
   dispose(): void {

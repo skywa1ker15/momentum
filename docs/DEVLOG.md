@@ -223,3 +223,7 @@ The repository `skywa1ker15/momentum` was empty and no Vercel project existed. T
 - Choosing an environment or loading a save now goes straight into the lab (the click is the gesture the browser needs for pointer lock).
 - The menu has an always-visible "Resume / Enter laboratory" button on every tab, and clicking the dimmed area outside the card resumes too.
 - e2e smoke test updated (25 checks).
+
+## Pointer-lock fallback
+- If the browser cannot or will not capture the mouse (unsupported, refused, embedded view), Enter/Resume now still starts the lab: free cursor, arrow keys look, Esc opens the menu, and a message says why.
+- e2e covers it (28 checks).
