@@ -12,15 +12,26 @@
       #boot { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: #05070b; color: #e8eef5; font-family: "Inter", "Segoe UI", system-ui, sans-serif; text-align: center; }
       #boot h1 { margin: 0 0 18px; font-size: 30px; font-weight: 300; letter-spacing: 0.42em; margin-right: -0.42em; }
       #boot p { margin: 0; color: #a3afbf; font-size: 13px; letter-spacing: 0.08em; }
+      #boot { transition: opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
+      #boot.done { opacity: 0; pointer-events: none; }
+      #boot h1 { animation: boot-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+      #boot p { animation: boot-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both; }
+      @keyframes boot-in { from { opacity: 0; transform: translateY(8px); } }
       #boot .bar { width: 180px; height: 2px; margin: 0 auto 16px; background: rgba(255, 255, 255, 0.12); overflow: hidden; border-radius: 2px; }
-      #boot .bar::after { content: ""; display: block; width: 40%; height: 100%; background: #5ad8ff; animation: boot-slide 1.2s ease-in-out infinite; }
+      /* Indeterminate until the first stage reports in, then a real 0-100% bar. */
+      #boot .bar > span { display: block; width: 100%; height: 100%; background: #5ad8ff; transform-origin: left center; }
+      #boot .bar > span:not(.determinate) { width: 40%; animation: boot-slide 1.2s ease-in-out infinite; }
+      #boot .bar > span.determinate { transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
       @keyframes boot-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
-      @media (prefers-reduced-motion: reduce) { #boot .bar::after { animation: none; width: 100%; opacity: 0.5; } }
+      @media (prefers-reduced-motion: reduce) {
+        #boot .bar > span:not(.determinate) { animation: none; width: 100%; opacity: 0.5; }
+        #boot h1, #boot p, #boot { animation: none; transition: none; }
+      }
     </style>
     <div id="boot" role="status" aria-live="polite">
       <div>
         <h1>MOMENTUM</h1>
-        <div class="bar"></div>
+        <div class="bar"><span id="boot-bar"></span></div>
         <p id="boot-status">Loading the laboratory</p>
         <noscript><p>MOMENTUM needs JavaScript to run.</p></noscript>
       </div>

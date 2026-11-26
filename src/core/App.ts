@@ -5,6 +5,7 @@ import { CONFIG, QUALITY, QUALITY_ORDER, type QualityLevel } from "./config";
 import type { RenderBackend } from "../render/EngineFactory";
 import { MaterialLibrary } from "../render/MaterialLibrary";
 import { Lighting } from "../render/Lighting";
+import { Atmosphere } from "../render/Atmosphere";
 import { RenderPipeline } from "../render/RenderPipeline";
 import { PhysicsWorld } from "../physics/PhysicsWorld";
 import { ENVIRONMENTS } from "../environments";
@@ -33,6 +34,7 @@ import { DYNAMIC_RESOLUTION } from "./config";
 import { MATERIALS, MATERIAL_ORDER, DEFAULT_MATERIAL, type MaterialId } from "../materials/Materials";
 import { ObjectFactory, PRIMITIVE_KINDS, type PrimitiveKind, type SandboxObject } from "../objects/ObjectFactory";
 import { PlayerController, type MoveIntent } from "../player/PlayerController";
+import { ViewMotion } from "../player/ViewMotion";
 import { InputManager } from "../input/InputManager";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { GrabTool } from "../tools/GrabTool";
@@ -47,6 +49,8 @@ export type ToolId = "hand" | "force" | "field" | "link" | "blast";
 export const TOOLS: readonly ToolId[] = ["hand", "force", "field", "link", "blast"];
 /** Particle budget per graphics quality. */
 const FX_BUDGET: Record<QualityLevel, number> = { low: 0.4, medium: 0.75, high: 1 };
+/** Ambient dust and light-haze density per graphics quality. Off on low. */
+const ATMOSPHERE: Record<QualityLevel, number> = { low: 0, medium: 0.65, high: 1 };
 
 const IDLE: MoveIntent = { forward: 0, strafe: 0, sprint: false, jump: false };
 
@@ -77,7 +81,7 @@ export class App {
   readonly sound = new SoundEngine();
   selectedKind: PrimitiveKind = "box";
 
-  private readonly camera: FreeCamera;
+  readonly camera: FreeCamera;
   readonly input: InputManager;
   readonly hud: Hud;
   private readonly interp: Interpolator;
@@ -90,6 +94,7 @@ export class App {
   private lastRaiseAt = -Infinity;
   private raiseBlockedUntil = 0;
   private readonly lighting: Lighting;
+  private readonly atmosphere: Atmosphere;
   private readonly pipeline: RenderPipeline;
   private readonly overlay: VectorOverlay;
   private readonly fieldVisuals: FieldVisuals;
@@ -97,6 +102,8 @@ export class App {
   private pendingEdit = false;
   /** Camera shake amplitude in metres (visual), decays every frame. */
   private shake = 0;
+  /** Head bob, landing dip and strafe roll. Visual only. */
+  readonly viewMotion = new ViewMotion();
   private frame = 0;
   private baseFov = (this.settings.fov * Math.PI) / 180;
   private everEntered = false;
@@ -125,6 +132,7 @@ export class App {
     this.camera.fov = this.baseFov;
 
     this.lighting = new Lighting(this.scene, this.environment, QUALITY[this.quality].shadowMapSize);
+    this.atmosphere = new Atmosphere(this.scene, this.environment, this.lighting);
     this.pipeline = new RenderPipeline(this.scene, this.camera);
     this.pipeline.bakeReflections(this.environment);
 
@@ -296,6 +304,7 @@ export class App {
       this.environment.build({ scene: this.scene, materials: this.materials });
       this.scene.fogColor = this.environment.lightRig.fogColor;
       this.lighting.applyEnvironment(this.environment);
+      this.atmosphere.applyEnvironment(this.environment);
       this.pipeline.bakeReflections(this.environment);
       this.hud.setEnvironment(this.environment.id, this.environment.name);
     }
@@ -303,6 +312,10 @@ export class App {
       this.startExperiment();
       this.hud.toast(this.environment.name);
     }
+    // Hide the jump: the room is already swapped, so cover the screen and fade in on the new one.
+    this.hud.fadeFromBlack();
+    // A touch of extra field of view that eases back, so arriving settles instead of snapping.
+    this.camera.fov = this.baseFov * 1.07;
   }
 
   nextEnvironment(): void {
@@ -431,6 +444,7 @@ export class App {
     this.undoData = this.captureExperiment();
     this.clearExperiment();
     this.startExperiment();
+    this.hud.fadeFromBlack(320);
     this.hud.toast("Experiment reset · Z to undo");
   }
 
@@ -496,6 +510,7 @@ export class App {
     this.player.invertY = s.invertY;
     this.baseFov = (s.fov * Math.PI) / 180;
     this.sound.setVolume(s.volume);
+    this.viewMotion.enabled = s.viewMotion;
     if (this.quality !== s.quality) {
       this.quality = s.quality;
       this.dynScale = 1;
@@ -614,7 +629,7 @@ export class App {
     // The menu is a pause screen: nothing moves while it is open (including before first entry).
     const frozen = this.mode === "menu";
     if (!frozen) this.player.update(dt, intent);
-    this.syncCamera(dt, intent.sprint && (intent.forward !== 0 || intent.strafe !== 0));
+    this.syncCamera(dt, intent, frozen);
 
     const eye = this.player.eyePosition;
     const dir = this.player.viewDirection;
@@ -622,6 +637,7 @@ export class App {
     if (this.force.target) this.force.setDirection(dir);
 
     const simDt = frozen ? 0 : this.world.advance(dt);
+    this.atmosphere.update(frozen ? 0 : dt, this.camera.position);
     this.deformation.update(simDt);
     this.effects.update(this.explosions.waves, frozen || this.world.paused ? 0 : this.world.timeScale);
 
@@ -629,7 +645,10 @@ export class App {
       this.factory.cullOutOfBounds();
       // Adaptive particle budget: quality preset, halved when the frame rate sags.
       const fps = this.engine.getFps();
-      this.effects.budget = FX_BUDGET[this.quality] * (fps < 25 ? 0.25 : fps < 42 ? 0.5 : 1);
+      const headroom = fps < 25 ? 0.25 : fps < 42 ? 0.5 : 1;
+      this.effects.budget = FX_BUDGET[this.quality] * headroom;
+      // Atmosphere is decoration, so it thins out first when frames are scarce.
+      this.atmosphere.setDensity(ATMOSPHERE[this.quality] * headroom);
     }
     if (!frozen) this.updateDynamicResolution(dt);
 
@@ -672,26 +691,51 @@ export class App {
     input.endFrame();
   }
 
-  private syncCamera(dt: number, sprinting = false): void {
+  private syncCamera(dt: number, intent: MoveIntent = IDLE, frozen = false): void {
     const eye = this.player.eyePosition;
     const cam = this.camera;
+    const vel = this.player.velocity;
+    const moving = intent.forward !== 0 || intent.strafe !== 0;
+    const sprinting = intent.sprint && moving;
+
+    // Walk bob, landing dip and strafe roll, from the body's own motion.
+    this.viewMotion.update(
+      frozen ? 0 : dt,
+      Math.hypot(vel.x, vel.z),
+      vel.y,
+      this.player.grounded,
+      intent.strafe,
+      sprinting,
+    );
+    const m = this.viewMotion;
+
     // Horizontal follows exactly; vertical is eased so steps and landings do not jolt the view.
     const k = 1 - Math.exp(-22 * dt);
     const y = Math.abs(eye.y - cam.position.y) > 1.5 ? eye.y : cam.position.y + (eye.y - cam.position.y) * k;
     cam.position.set(eye.x, y, eye.z);
+    // Bob offsets are in view space: x along the view's right axis, y world up.
+    if (m.offset.x !== 0 || m.offset.y !== 0) {
+      cam.position.addInPlaceFromFloats(
+        Math.cos(this.player.yaw) * m.offset.x,
+        m.offset.y,
+        -Math.sin(this.player.yaw) * m.offset.x,
+      );
+    }
     if (this.shake > 0.002) {
       // Visual only: the player body does not move.
       cam.position.addInPlaceFromFloats((Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake, (Math.random() - 0.5) * this.shake);
       this.shake *= Math.exp(-9 * dt);
     }
-    cam.rotationQuaternion = this.player.viewRotation();
-    const targetFov = this.baseFov + (sprinting ? 0.07 : 0);
+    cam.rotationQuaternion = this.player.viewRotation(m.roll);
+    // A blast widens the view a touch as well as shaking it, and a sprint pulls it wider still.
+    const targetFov = this.baseFov + (sprinting ? 0.07 : 0) + Math.min(0.06, this.shake * 0.25);
     cam.fov += (targetFov - cam.fov) * (1 - Math.exp(-8 * dt));
   }
 
   private applyQuality(): void {
     const q = QUALITY[this.quality];
     this.applyResolution();
+    this.atmosphere.setDensity(ATMOSPHERE[this.quality]);
     this.lighting.setShadowMapSize(q.shadowMapSize);
     this.pipeline.applyQuality(q);
   }

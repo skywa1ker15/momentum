@@ -385,3 +385,199 @@ kbd {
 .menu-warning { padding: 10px 12px; border: 1px solid rgba(255, 176, 87, 0.45); border-radius: 10px; color: var(--warn) !important; font-size: 12.5px !important; }
 .menu-tab:focus-visible, .chip-button:focus-visible, .env-card:focus-visible, .enter-button:focus-visible, .swatch:focus-visible { box-shadow: 0 0 0 2px rgba(90, 216, 255, 0.6); }
 .setting-row.toggle-row:focus-within .toggle-track { box-shadow: 0 0 0 2px rgba(90, 216, 255, 0.5); }
+
+/* --- motion tokens ------------------------------------------------------- */
+/* One easing vocabulary for the whole interface, so separate elements read as
+   one connected movement rather than a set of unrelated transitions.
+   out:    arriving (fast start, soft landing)
+   spring: arriving with a slight overshoot, for things that should feel physical
+   in-out: moving between two resting places
+   Durations are deliberately short: this sits on top of a 60 FPS simulation. */
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.46, 0.64, 1);
+  --ease-in-out: cubic-bezier(0.65, 0.05, 0.36, 1);
+  --t-fast: 0.14s;
+  --t-base: 0.24s;
+  --t-slow: 0.42s;
+}
+
+/* Cover for environment swaps and teleports: opaque for one frame, then it fades. */
+.screen-fade {
+  position: absolute; inset: 0; z-index: 9;
+  background: #04060a;
+  opacity: 0; pointer-events: none;
+}
+
+/* =======================================================================
+   Animation and microinteraction pass
+   -----------------------------------------------------------------------
+   Rules below deliberately come last so they refine the earlier layout
+   rules rather than replacing them. Three principles:
+     1. One easing vocabulary (the tokens above), so unrelated panels still
+        feel like parts of the same object.
+     2. Animate transform and opacity only. Both are composited on the GPU,
+        so none of this costs layout work per frame while the simulation runs.
+     3. Everything here is suppressed by prefers-reduced-motion (bottom).
+   ======================================================================= */
+
+/* --- panels: arrive rather than appear ---------------------------------- */
+.panel { transition: opacity var(--t-base) var(--ease-out), transform var(--t-base) var(--ease-out), border-color var(--t-base), box-shadow var(--t-base); }
+.brand, .telemetry, .hotbar, .sim-pill { animation: panel-rise var(--t-slow) var(--ease-out) both; }
+.telemetry { animation-delay: 0.05s; }
+.hotbar { animation-delay: 0.1s; }
+.sim-pill { animation-delay: 0.15s; }
+@keyframes panel-rise { from { opacity: 0; transform: translateY(10px); } }
+/* The centred pieces must keep their centring transform while they rise. */
+.sim-pill { animation-name: pill-rise; }
+@keyframes pill-rise { from { opacity: 0; transform: translateX(-50%) translateY(-8px); } to { opacity: 1; transform: translateX(-50%); } }
+.hotbar { animation-name: hotbar-rise; }
+@keyframes hotbar-rise { from { opacity: 0; transform: translateX(-50%) translateY(14px); } to { opacity: 1; transform: translateX(-50%); } }
+
+/* --- buttons: press feedback -------------------------------------------- */
+.chip-button, .enter-button, .nav-enter, .menu-tab, .env-card, .swatch {
+  transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out),
+    color var(--t-fast), transform var(--t-fast) var(--ease-spring), box-shadow var(--t-base) var(--ease-out);
+}
+.chip-button:hover { transform: translateY(-1px); }
+/* The press takes the lift away and shrinks slightly: the control gives under the cursor. */
+.chip-button:active, .enter-button:active, .nav-enter:active, .env-card:active, .menu-tab:active { transform: translateY(0) scale(0.975); transition-duration: 0.06s; }
+.enter-button:hover, .enter-button:focus-visible { transform: translateY(-2px); }
+.nav-enter { transition: background var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-spring), box-shadow var(--t-base); }
+.nav-enter:hover, .nav-enter:focus-visible { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(90, 216, 255, 0.18); }
+
+/* --- hotbar: one marker slides between slots ---------------------------- */
+/* The hotbar is already absolutely positioned, which is containing block enough
+   for the marker. Do not give it `position: relative` here: that would override
+   `position: absolute` above and drop it out of the bottom-centre anchor. */
+.slot-marker {
+  position: absolute; top: 0; left: 0; width: 70px; height: 60px; border-radius: 10px;
+  background: var(--accent-soft); border: 1px solid rgba(90, 216, 255, 0.4);
+  box-shadow: 0 0 20px rgba(90, 216, 255, 0.12);
+  opacity: 0; pointer-events: none;
+  transition: transform 0.3s var(--ease-spring), width 0.3s var(--ease-spring), height 0.3s var(--ease-spring), opacity var(--t-base);
+}
+.slot-marker.placed { opacity: 1; }
+/* The marker now carries the highlight, so the slot itself only brightens its text. */
+.slot { position: relative; z-index: 1; }
+.slot.selected { background: transparent; border-color: transparent; }
+.slot svg { transition: transform var(--t-base) var(--ease-spring); }
+.slot.selected svg { transform: scale(1.12) translateY(-1px); }
+
+/* --- tool strip --------------------------------------------------------- */
+.tool-pill { transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast), transform var(--t-base) var(--ease-spring); }
+.tool-pill.active { transform: translateY(-2px) scale(1.04); }
+
+/* --- crosshair and target label ----------------------------------------- */
+.crosshair { transition: transform var(--t-fast) var(--ease-spring), background var(--t-fast), box-shadow var(--t-fast), opacity var(--t-base); }
+.target-label { transition: opacity var(--t-fast) var(--ease-out), transform var(--t-base) var(--ease-out); }
+
+/* --- toast: springs up, settles ----------------------------------------- */
+.toast { transition: opacity var(--t-base) var(--ease-out), transform 0.34s var(--ease-spring); }
+.toast:not(.visible) { transform: translate(-50%, 14px) scale(0.96); }
+
+/* --- guide: scales up from the centre ----------------------------------- */
+.guide { transition: opacity var(--t-base) var(--ease-out), transform 0.3s var(--ease-spring), visibility var(--t-base); }
+.guide:not(.open) { transform: translate(-50%, -46%) scale(0.96); }
+.guide.open .guide-grid > section { animation: fade-up 0.4s var(--ease-out) both; }
+.guide.open .guide-grid > section:nth-child(2) { animation-delay: 0.05s; }
+.guide.open .guide-grid > section:nth-child(3) { animation-delay: 0.1s; }
+.guide.open .guide-grid > section:nth-child(4) { animation-delay: 0.15s; }
+@keyframes fade-up { from { opacity: 0; transform: translateY(8px); } }
+
+/* --- menu --------------------------------------------------------------- */
+.menu-card { animation: menu-in 0.42s var(--ease-out) both; }
+@keyframes menu-in { from { opacity: 0; transform: translateY(14px) scale(0.975); } to { opacity: 1; transform: none; } }
+.overlay { transition: opacity var(--t-slow) var(--ease-out), visibility var(--t-slow); }
+.menu-nav { position: relative; }
+.menu-tab-marker {
+  position: absolute; top: 0; left: 0; border-radius: 9px;
+  background: var(--accent-soft); border: 1px solid rgba(90, 216, 255, 0.35);
+  opacity: 0; pointer-events: none;
+  transition: transform 0.32s var(--ease-spring), width 0.32s var(--ease-spring), height 0.2s var(--ease-out), opacity var(--t-base);
+}
+.menu-tab-marker.placed { opacity: 1; }
+.menu-tab { position: relative; z-index: 1; }
+.menu-tab.active { background: transparent; border-color: transparent; }
+/* Panels slide in from the side their tab sits on. */
+.menu-panel { animation: none; }
+.menu-panel.active.from-end { animation: panel-from-end 0.34s var(--ease-out) both; }
+.menu-panel.active.from-start { animation: panel-from-start 0.34s var(--ease-out) both; }
+@keyframes panel-from-end { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+@keyframes panel-from-start { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
+/* Rows arrive in sequence so a dense panel does not land all at once. */
+.menu-panel.active > * { animation: fade-up 0.34s var(--ease-out) both; }
+.menu-panel.active > :nth-child(1) { animation-delay: 0.02s; }
+.menu-panel.active > :nth-child(2) { animation-delay: 0.05s; }
+.menu-panel.active > :nth-child(3) { animation-delay: 0.08s; }
+.menu-panel.active > :nth-child(4) { animation-delay: 0.11s; }
+.menu-panel.active > :nth-child(5) { animation-delay: 0.14s; }
+.menu-panel.active > :nth-child(n + 6) { animation-delay: 0.17s; }
+
+/* Environment cards: lift, and a soft sheen crosses them on hover. */
+.env-card { position: relative; overflow: hidden; }
+.env-card::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(115deg, transparent 38%, rgba(255, 255, 255, 0.07) 50%, transparent 62%);
+  transform: translateX(-110%); transition: transform 0.6s var(--ease-out);
+}
+.env-card:hover::after, .env-card:focus-visible::after { transform: translateX(110%); }
+.env-card:hover, .env-card:focus-visible { transform: translateY(-3px); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3); }
+.env-card.active .env-state { animation: state-pulse 2.8s var(--ease-in-out) infinite; }
+@keyframes state-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+.menu-status { transition: color var(--t-base); }
+.menu-status:not(:empty) { animation: fade-up var(--t-base) var(--ease-out) both; }
+
+/* --- inspector ---------------------------------------------------------- */
+/* The body slides down when something is selected instead of snapping into place. */
+.inspector-body { display: block; opacity: 0; transform: translateY(-6px); max-height: 0; overflow: hidden; pointer-events: none; transition: opacity var(--t-base) var(--ease-out), transform var(--t-base) var(--ease-out); }
+.inspector.has-object .inspector-body { opacity: 1; transform: none; max-height: none; overflow: visible; pointer-events: auto; }
+.inspector-empty { transition: opacity var(--t-fast); }
+.inspector.has-object .inspector-empty { display: block; opacity: 0; max-height: 0; overflow: hidden; padding: 0; }
+.swatch:active { transform: scale(0.94); transition-duration: 0.06s; }
+.toggle-track::after { transition: transform var(--t-base) var(--ease-spring), background var(--t-base); }
+.slider-row input[type="range"]::-webkit-slider-thumb { transition: transform var(--t-fast) var(--ease-spring), box-shadow var(--t-fast); }
+.slider-row input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.4); box-shadow: 0 0 16px rgba(90, 216, 255, 0.5); }
+
+/* --- onboarding: ticks pop as they complete ----------------------------- */
+.onboarding { transition: opacity var(--t-slow) var(--ease-out), transform var(--t-slow) var(--ease-spring), visibility var(--t-slow); }
+.onboarding-step.done .tick { animation: tick-pop 0.42s var(--ease-spring) both; }
+@keyframes tick-pop { 0% { transform: scale(0.4); } 55% { transform: scale(1.35); } 100% { transform: scale(1); } }
+
+/* --- telemetry: the frame-rate row warns when it drops ------------------ */
+.stat-value.low { color: var(--warn); }
+.stat-value { transition: color var(--t-base); }
+
+/* --- reduced motion ----------------------------------------------------- */
+/* Keep every state change instant, and stop anything that loops on its own. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  .env-card::after { display: none; }
+}
+
+/* --- stacking order ------------------------------------------------------ */
+/* Stated once, in one place, so a new animated element cannot quietly change it.
+   The transition cover sits over the viewport and HUD but under the menu, which is
+   still readable while a room is swapped; the guide sits over everything but the
+   fatal-error screen (z-index 20, set with the boot screen in index.html). */
+.screen-fade { z-index: 4; }
+.overlay { z-index: 5; }
+.guide { z-index: 12; }
+
+/* --- appearing panels stay usable while they fade ----------------------- */
+/* A transition on `visibility` keeps an element unhittable until the fade ends,
+   so a panel can look open while clicks still fall through it. Instead: show it
+   at once and delay only the hiding, so the fade-out is still visible. */
+.guide, .edit-banner, .onboarding {
+  transition: opacity var(--t-base) var(--ease-out), transform 0.3s var(--ease-spring), visibility 0s;
+}
+.guide:not(.open), .hud:not(.edit-mode) .edit-banner, .onboarding:not(.visible) {
+  transition: opacity var(--t-base) var(--ease-out), transform 0.3s var(--ease-spring), visibility 0s var(--t-base);
+}
+/* Clear of the hotbar and the tool strip even while it is still sliding in. */
+.onboarding { bottom: 124px; }

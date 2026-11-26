@@ -126,9 +126,9 @@ export class PlayerController {
     this.cc.integrate(dt, support, this.gravity);
   }
 
-  /** Camera orientation for the current view angles. */
-  viewRotation(): Quaternion {
-    return Quaternion.RotationYawPitchRoll(this.yaw, this.pitch, 0);
+  /** Camera orientation for the current view angles, with an optional visual roll. */
+  viewRotation(roll = 0): Quaternion {
+    return Quaternion.RotationYawPitchRoll(this.yaw, this.pitch, roll);
   }
 
   dispose(): void {

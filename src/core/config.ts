@@ -167,6 +167,12 @@ export interface QualitySettings {
   msaaSamples: number;
   bloom: boolean;
   glow: boolean;
+  /** Film grain and lens fringing: two extra full-screen passes. Off on low. */
+  filmic: boolean;
+  /** Screen-space ambient occlusion: contact shadows where surfaces meet. Costs a depth pass. */
+  ssao: boolean;
+  /** Per-object motion blur. Costs a velocity pass; only worth it with frames to spare. */
+  motionBlur: boolean;
 }
 
 /**
@@ -174,9 +180,9 @@ export interface QualitySettings {
  * Dynamic resolution (see App) lowers the render scale further when the frame rate drops.
  */
 export const QUALITY: Record<QualityLevel, QualitySettings> = {
-  low: { renderScale: 0.7, maxRenderHeight: 900, shadowMapSize: 1024, msaaSamples: 1, bloom: false, glow: false },
-  medium: { renderScale: 1, maxRenderHeight: 1080, shadowMapSize: 2048, msaaSamples: 1, bloom: true, glow: true },
-  high: { renderScale: 1, maxRenderHeight: 1440, shadowMapSize: 4096, msaaSamples: 2, bloom: true, glow: true },
+  low: { renderScale: 0.7, maxRenderHeight: 900, shadowMapSize: 1024, msaaSamples: 1, bloom: false, glow: false, filmic: false, ssao: false, motionBlur: false },
+  medium: { renderScale: 1, maxRenderHeight: 1080, shadowMapSize: 2048, msaaSamples: 1, bloom: true, glow: true, filmic: true, ssao: false, motionBlur: false },
+  high: { renderScale: 1, maxRenderHeight: 1440, shadowMapSize: 4096, msaaSamples: 2, bloom: true, glow: true, filmic: true, ssao: true, motionBlur: true },
 };
 
 export const DYNAMIC_RESOLUTION = {

@@ -13,6 +13,8 @@ export interface Settings {
   dynamicResolution: boolean;
   /** Shake the camera on nearby blasts. Off by default when the system asks for reduced motion. */
   cameraShake: boolean;
+  /** Head bob, landing dip and strafe roll while walking. Off by default under reduced motion. */
+  viewMotion: boolean;
   /** Renderer to use on the next start. WebGPU is experimental and falls back to WebGL 2. */
   renderer: "webgl2" | "webgpu";
   /** Getting-started checklist dismissed or completed. */
@@ -31,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   volume: 0.6,
   dynamicResolution: true,
   cameraShake: !prefersReducedMotion(),
+  viewMotion: !prefersReducedMotion(),
   renderer: "webgl2",
   hintsDone: false,
 };
@@ -52,6 +55,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     volume: clamp(r.volume, 0, 1, d.volume),
     dynamicResolution: typeof r.dynamicResolution === "boolean" ? r.dynamicResolution : d.dynamicResolution,
     cameraShake: typeof r.cameraShake === "boolean" ? r.cameraShake : d.cameraShake,
+    viewMotion: typeof r.viewMotion === "boolean" ? r.viewMotion : d.viewMotion,
     renderer: r.renderer === "webgpu" ? "webgpu" : "webgl2",
     hintsDone: typeof r.hintsDone === "boolean" ? r.hintsDone : d.hintsDone,
   };

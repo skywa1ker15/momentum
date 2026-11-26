@@ -38,6 +38,9 @@ export class Menu {
   private readonly tabs = new Map<Tab, { button: HTMLButtonElement; panel: HTMLElement }>();
   private readonly enterButton: HTMLButtonElement;
   private readonly navEnter: HTMLButtonElement;
+  private readonly tabMarker: HTMLElement;
+  private tabOrder: Tab[] = [];
+  private current: Tab = "home";
   private readonly envCards = new Map<string, HTMLElement>();
   private readonly slotRows: Array<{ info: HTMLElement; load: HTMLButtonElement; remove: HTMLButtonElement }> = [];
   private readonly status: HTMLElement;
@@ -58,6 +61,10 @@ export class Menu {
 
     const nav = el("nav", "menu-nav");
     nav.append(el("div", "menu-brand", "MOMENTUM"));
+    // The highlight behind the active tab is one element that slides, so switching tabs
+    // is a single continuous movement rather than one box fading out and another in.
+    this.tabMarker = el("div", "menu-tab-marker");
+    nav.appendChild(this.tabMarker);
     card.appendChild(nav);
     // Always-visible way back into the lab, from any tab.
     this.navEnter = el("button", "nav-enter", "Enter laboratory");
@@ -81,6 +88,7 @@ export class Menu {
       const panel = el("section", "menu-panel");
       content.appendChild(panel);
       this.tabs.set(id, { button, panel });
+      this.tabOrder.push(id);
       return panel;
     };
 
@@ -194,7 +202,7 @@ export class Menu {
     this.invert.addEventListener("change", () => this.onSettings?.({ invertY: this.invert.checked }));
     invRow.append(el("span", "setting-label", "Invert vertical look"), this.invert, el("span", "toggle-track"));
     set.appendChild(invRow);
-    const toggle = (key: "dynamicResolution" | "cameraShake", label: string) => {
+    const toggle = (key: "dynamicResolution" | "cameraShake" | "viewMotion", label: string) => {
       const row = el("label", "setting-row toggle-row");
       const input = el("input");
       input.type = "checkbox";
@@ -205,6 +213,7 @@ export class Menu {
     };
     toggle("dynamicResolution", "Dynamic resolution");
     toggle("cameraShake", "Camera shake");
+    toggle("viewMotion", "Head movement");
     const rRow = el("div", "setting-row");
     rRow.appendChild(el("span", "setting-label", "Renderer"));
     const rButtons = el("div", "slot-actions");
@@ -232,6 +241,8 @@ export class Menu {
 
   setVisible(visible: boolean): void {
     this.root.classList.toggle("hidden", !visible);
+    // The nav is not laid out while the menu is hidden, so re-measure when it comes back.
+    if (visible) requestAnimationFrame(() => this.moveTabMarker());
   }
 
   /** After the first entry the home button resumes instead of entering. */
@@ -241,10 +252,33 @@ export class Menu {
   }
 
   show(tab: Tab): void {
+    // Slide the incoming panel in from the side the tab sits on, so the movement
+    // matches the direction the eye travelled.
+    const back = this.tabOrder.indexOf(tab) < this.tabOrder.indexOf(this.current);
     for (const [id, t] of this.tabs) {
       t.button.classList.toggle("active", id === tab);
       t.panel.classList.toggle("active", id === tab);
+      if (id === tab) {
+        t.panel.classList.toggle("from-start", back);
+        t.panel.classList.toggle("from-end", !back);
+      }
     }
+    this.current = tab;
+    this.moveTabMarker();
+  }
+
+  private moveTabMarker(): void {
+    const active = this.tabs.get(this.current)?.button;
+    if (!active) return;
+    const place = () => {
+      if (!active.offsetWidth) return;
+      this.tabMarker.style.width = `${active.offsetWidth}px`;
+      this.tabMarker.style.height = `${active.offsetHeight}px`;
+      this.tabMarker.style.transform = `translate3d(${active.offsetLeft}px, ${active.offsetTop}px, 0)`;
+      this.tabMarker.classList.add("placed");
+    };
+    place();
+    if (!this.tabMarker.classList.contains("placed")) requestAnimationFrame(place);
   }
 
   setEnvironment(id: string): void {
@@ -287,6 +321,7 @@ export class Menu {
     this.invert.checked = s.invertY;
     this.toggles.get("dynamicResolution")!.checked = s.dynamicResolution;
     this.toggles.get("cameraShake")!.checked = s.cameraShake;
+    this.toggles.get("viewMotion")!.checked = s.viewMotion;
     for (const [id, b] of this.rendererButtons) b.classList.toggle("active", id === s.renderer);
     this.rendererNote.textContent =
       s.renderer !== this.activeRenderer

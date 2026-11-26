@@ -58,7 +58,24 @@ The menu's Experiments tab has three save slots (stored in the browser) plus exp
 | Joints, motors, springs, sliders; the soft spring lattice | Squash of rubber / elastic / plastic on impact |
 | Fracture, bond breaking | Water surface and volume tint |
 | Blast impulses (pressure front) | Velocity and force arrows, field and joint markers |
-| Water buoyancy and drag | Bloom, glow, fog, reflections |
+| Water buoyancy and drag | Bloom, glow, fog, reflections, ambient occlusion |
+| Player body: walking, slopes, jumping, pushing objects | Head bob, landing dip, strafe roll, sprint field of view |
+| — | Ambient dust, light haze, grain, lens fringing, motion blur |
+
+The right-hand column is decoration. Switching any of it off changes how the laboratory looks, never what an experiment does: the same experiment run on the low and high presets, or with head movement off, produces the same result.
+
+## Graphics presets
+
+| | Low | Medium | High |
+| --- | --- | --- | --- |
+| Render scale / height cap | 0.7 / 900 px | 1.0 / 1080 px | 1.0 / 1440 px |
+| Shadow map | 1024 | 2048 | 4096 |
+| Bloom and glow | off | on | on |
+| Grain and lens fringing | off | on | on |
+| Ambient dust and light haze | off | reduced | full |
+| Ambient occlusion, motion blur | off | off | on |
+
+Ambient occlusion and motion blur are downloaded only when the high preset is used. Dynamic resolution (on by default) lowers the render scale when the frame rate drops, and the atmosphere thins before anything else gives way. Head movement, camera shake and dynamic resolution each have a switch in Settings, and all motion effects default to off when the system asks for reduced motion.
 
 ## Renderer
 

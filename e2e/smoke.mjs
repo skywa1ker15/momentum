@@ -178,6 +178,47 @@ check("arrow keys turn the view in fallback mode", yaw0 !== yaw1, `${yaw0} -> ${
 await key("Escape", 600);
 check("Esc returns to the menu in fallback mode", await app(() => window.__momentum.mode === "menu"));
 
+// --- animation and graphics pass
+// Back into the lab (mouse capture is still mocked as refused, so this is fallback mode).
+await page.click(".nav-enter");
+await sleep(800);
+const marker = await app(() => { const m = document.querySelector(".slot-marker"); return { placed: m.classList.contains("placed"), x: m.style.transform }; });
+await key("Digit3", 600);
+const marker2 = await app(() => document.querySelector(".slot-marker").style.transform);
+check("the hotbar marker slides to the chosen shape", marker.placed && marker2 !== marker.x, `${marker.x} -> ${marker2}`);
+
+const dust = await app(() => { const s = window.__momentum.scene.particleSystems.find((p) => p.name === "fx-dust"); return { exists: !!s, started: s?.isStarted() ?? false, rate: s?.emitRate ?? 0, shafts: window.__momentum.scene.meshes.filter((m) => m.name.startsWith("fx-shaft")).length }; });
+check("ambient dust and light shafts exist and run at the medium preset", dust.exists && dust.started && dust.rate > 0 && dust.shafts === 2, JSON.stringify(dust));
+
+await app(() => window.__momentum.updateSettings({ quality: "low" }));
+await sleep(600);
+const lowDust = await app(() => { const s = window.__momentum.scene.particleSystems.find((p) => p.name === "fx-dust"); return { rate: s.emitRate, shaftOn: window.__momentum.scene.meshes.find((m) => m.name === "fx-shaft-0")?.isEnabled() }; });
+check("the low preset switches the atmosphere off entirely", lowDust.rate === 0 && lowDust.shaftOn === false, JSON.stringify(lowDust));
+await app(() => window.__momentum.updateSettings({ quality: "medium" }));
+await sleep(600);
+
+// The camera must stay inside the player's head however much the view is moving.
+await app(() => { const a = window.__momentum; a.viewMotion.enabled = true; });
+await page.keyboard.down("KeyW");
+await sleep(1200);
+const drift = await app(() => { const a = window.__momentum; const e = a.player.eyePosition; const c = a.camera ?? a.scene.activeCamera; return Math.hypot(c.position.x - e.x, c.position.y - e.y, c.position.z - e.z); });
+await page.keyboard.up("KeyW");
+check("head movement never pulls the camera out of the body", drift < 0.3, `${drift.toFixed(3)} m`);
+
+const envFade = await app(() => { const a = window.__momentum; a.loadEnvironment("gravity-lab"); return a.hud.fadeOpacity; });
+check("switching environment covers the screen, then fades in", envFade === 1);
+await sleep(1200);
+check("the cover clears after the fade", (await app(() => window.__momentum.hud.fadeOpacity)) === 0);
+
+// The high preset adds ambient occlusion and motion blur, both loaded on demand.
+await app(() => window.__momentum.updateSettings({ quality: "high" }));
+await sleep(3500);
+const high = await app(() => { const s = window.__momentum.scene; return { pipes: s.postProcessRenderPipelineManager.supportedPipelines.map((p) => p.name), q: window.__momentum.quality }; });
+check("the high preset loads ambient occlusion without errors", high.q === "high" && high.pipes.includes("momentum-ssao"), JSON.stringify(high));
+await app(() => window.__momentum.updateSettings({ quality: "medium" }));
+await sleep(1200);
+check("dropping back to medium removes it again", !(await app(() => window.__momentum.scene.postProcessRenderPipelineManager.supportedPipelines.map((p) => p.name).includes("momentum-ssao"))));
+
 check("no console errors or warnings", consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" | "));
 await browser.close();
 console.log(problems.length ? `\n${problems.length} check(s) failed` : "\nall checks passed");

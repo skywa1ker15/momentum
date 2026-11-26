@@ -60,6 +60,8 @@ export class Hud {
   private readonly targetLabel: HTMLElement;
   private readonly simPill: HTMLElement;
   private readonly toastEl: HTMLElement;
+  private readonly fadeEl: HTMLElement;
+  private readonly slotMarker: HTMLElement;
   private readonly toolChip: HTMLElement;
   private readonly materialChip: HTMLElement;
   private readonly brandSub: HTMLElement;
@@ -96,6 +98,10 @@ export class Hud {
     this.root.append(this.crosshair, this.targetLabel);
 
     const hotbar = el("div", "panel hotbar");
+    // One marker slides between the slots instead of each slot lighting up on its own,
+    // so changing the spawn shape reads as a single movement.
+    this.slotMarker = el("div", "slot-marker");
+    hotbar.appendChild(this.slotMarker);
     kinds.forEach((kind, i) => {
       const slot = el("div", "slot", `<span class="slot-key">${i + 1}</span>${ICONS[kind]}<span class="slot-name">${kind}</span>`);
       this.slots.set(kind, slot);
@@ -122,6 +128,9 @@ export class Hud {
 
     this.toastEl = el("div", "panel toast");
     this.root.appendChild(this.toastEl);
+
+    this.fadeEl = el("div", "screen-fade");
+    this.root.appendChild(this.fadeEl);
 
     this.guide = el("div", "panel guide");
     this.guide.setAttribute("role", "dialog");
@@ -194,6 +203,22 @@ export class Hud {
 
   setSelected(kind: PrimitiveKind): void {
     for (const [k, slot] of this.slots) slot.classList.toggle("selected", k === kind);
+    this.moveSlotMarker(kind);
+  }
+
+  /** Puts the sliding marker over the chosen slot. Measured, because slot widths vary with the layout. */
+  private moveSlotMarker(kind: PrimitiveKind): void {
+    const slot = this.slots.get(kind);
+    if (!slot) return;
+    const place = () => {
+      if (!slot.offsetWidth) return; // not laid out yet (hidden or still booting)
+      this.slotMarker.style.width = `${slot.offsetWidth}px`;
+      this.slotMarker.style.height = `${slot.offsetHeight}px`;
+      this.slotMarker.style.transform = `translate3d(${slot.offsetLeft}px, ${slot.offsetTop}px, 0)`;
+      this.slotMarker.classList.add("placed");
+    };
+    place();
+    if (!this.slotMarker.classList.contains("placed")) requestAnimationFrame(place);
   }
 
   setTarget(label: string | null, holding: boolean): void {
@@ -201,6 +226,29 @@ export class Hud {
     this.crosshair.classList.toggle("holding", holding);
     this.targetLabel.textContent = label ?? "";
     this.targetLabel.classList.toggle("visible", label !== null);
+  }
+
+  /**
+   * Covers the viewport at once, then fades the cover away over `ms`.
+   *
+   * Called around a change that moves the player or rebuilds the room: the opaque
+   * frame hides the jump (and whatever stutter the rebuild costs), and the fade
+   * makes the new scene arrive rather than appear.
+   */
+  fadeFromBlack(ms = 460): void {
+    const el = this.fadeEl;
+    el.style.transition = "none";
+    el.style.opacity = "1";
+    void el.offsetWidth; // paint the opaque frame before the fade begins
+    requestAnimationFrame(() => {
+      el.style.transition = `opacity ${ms}ms var(--ease-out)`;
+      el.style.opacity = "0";
+    });
+  }
+
+  /** Opacity of the transition cover, 0 .. 1. For tests. */
+  get fadeOpacity(): number {
+    return Number(this.fadeEl.style.opacity || "0");
   }
 
   toast(message: string): void {
@@ -217,6 +265,8 @@ export class Hud {
     if (now - this.lastStatsAt < 250) return; // text updates at 4 Hz are plenty and avoid layout churn
     this.lastStatsAt = now;
     this.stat.fps.textContent = s.fps.toFixed(0);
+    // Amber below 50: the one number worth noticing without reading it.
+    this.stat.fps.classList.toggle("low", s.fps > 0 && s.fps < 50);
     this.stat.frame.textContent = `${s.frameMs.toFixed(1)} ms`;
     this.stat.objects.textContent = `${s.objects} / ${s.objectLimit}`;
     this.stat.debris.textContent = `${s.debris} · ${s.fractures} breaks`;

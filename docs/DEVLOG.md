@@ -227,3 +227,25 @@ The repository `skywa1ker15/momentum` was empty and no Vercel project existed. T
 ## Pointer-lock fallback
 - If the browser cannot or will not capture the mouse (unsupported, refused, embedded view), Enter/Resume now still starts the lab: free cursor, arrow keys look, Esc opens the menu, and a message says why.
 - e2e covers it (28 checks).
+
+## Animation, graphics and movement pass
+
+Goal: make the laboratory feel like a place rather than a diagram, without changing a single simulated result.
+
+**Movement.** A new `ViewMotion` (src/player/ViewMotion.ts) drives three visual-only camera effects from the body's own state: a walk cycle that bobs the eye with the stride (deeper at a sprint), a spring-driven dip when the body lands, scaled by the fall speed, and a small roll into a strafe. The blast shake now widens the field of view slightly as well as shaking. All of it is off when "Head movement" is unticked, and off by default under `prefers-reduced-motion`.
+
+The landing spring was the one real trap here. Integrated once per frame it diverges at long frame times: in the 3 FPS test browser the camera ended up 25 m below the player's head. It is now integrated in fixed 1/240 s sub-steps and clamped, with tests at 6-20 FPS.
+
+**Transitions.** Switching environment, loading a save or resetting used to teleport the player with no warning. The screen is now covered for the frame in which the room is rebuilt and fades back in over ~0.4 s, with a touch of extra field of view that eases away, so arriving settles instead of snapping.
+
+**Atmosphere.** `Atmosphere` (src/render/Atmosphere.ts) adds dust that drifts through the room and follows the camera, soft haze cones under the accent lights (faded at both ends so they do not cut a hard line into the floor), and a ±4% breathing of the spot intensity over ~11 s. Off entirely on the low preset, reduced on medium, and the first thing to thin out when the frame rate sags.
+
+**Render pipeline.** Added a light sharpen (recovers detail lost to FXAA and upscaling) everywhere; grain and lens fringing on medium and above; screen-space ambient occlusion and camera motion blur on high only. The last two are `import()`-ed on demand, which also split them out of the main chunk: it dropped from 1,653 kB to 1,261 kB, so most of the open "main chunk is too big" item from the assessment is closed as a side effect.
+
+**Interface.** One easing vocabulary (`--ease-out`, `--ease-spring`, `--ease-in-out` plus three durations) now drives every transition, and everything animated is transform/opacity so none of it costs layout work while the simulation runs. The hotbar highlight and the menu tab highlight are each a single element that slides between positions rather than one box fading out and another in; menu panels slide in from the side their tab sits on with their rows staggered; buttons lift on hover and give under a press; environment cards catch a sheen; onboarding ticks pop as they complete; and the loading screen now shows real progress and fades out.
+
+Two bugs came out of this pass, both caught by the browser test: `position: relative` on the hotbar silently overrode its `position: absolute` and moved it to the top of the screen, and a `visibility` transition left the control guide unclickable while it faded in.
+
+Tests: 11 new unit tests (`tests/viewmotion.test.ts`), 7 new browser checks. 104 unit tests and 35 browser checks pass.
+
+Not measured: real frame rates. The test browser is software-rendered at ~3 FPS, so the presets remain estimates.

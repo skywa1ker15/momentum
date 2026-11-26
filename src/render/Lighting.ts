@@ -46,6 +46,11 @@ export class Lighting {
     this.applyEnvironment(env);
   }
 
+  /** The accent spot lights, for effects that modulate them. */
+  get spotLights(): readonly SpotLight[] {
+    return this.spots;
+  }
+
   /** Positions the lights for an environment and resets shadow casters to its static casters. */
   applyEnvironment(env: LabEnvironment): void {
     this.key.position = env.center.add(new Vector3(8, 16, -6));
