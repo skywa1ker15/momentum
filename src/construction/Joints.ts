@@ -99,10 +99,11 @@ export class JointManager {
 
   /**
    * Joins `a` to `bBody` at the world-space `pivot`. `axis` (world space) is the hinge, motor or
-   * slider axis. For a spring, `anchorA` is the end on `a` and `pivot` the end on `bBody`.
+   * slider axis. For a spring, `anchorA` is the end on `a` and `pivot` the end on `bBody`;
+   * its rest length is their distance unless `restLengthOverride` is given (used when loading a save).
    * Returns null at the joint limit or when both sides are the same body.
    */
-  create(kind: JointKind, a: SandboxObject, bBody: PhysicsBody, b: SandboxObject | null, pivot: Vector3, axis: Vector3, anchorA: Vector3 = pivot): Joint | null {
+  create(kind: JointKind, a: SandboxObject, bBody: PhysicsBody, b: SandboxObject | null, pivot: Vector3, axis: Vector3, anchorA: Vector3 = pivot, restLengthOverride?: number): Joint | null {
     if (this.atLimit || a.body === bBody) return null;
     const n = axis.lengthSquared() > 1e-6 ? axis.normalizeToNew() : Vector3.Up();
     const perp = perpendicular(n);
@@ -113,7 +114,7 @@ export class JointManager {
     let limits: Array<{ axis: PhysicsConstraintAxis; minLimit?: number; maxLimit?: number; stiffness?: number; damping?: number }>;
     let spring: Joint["spring"] = null;
     if (kind === "spring") {
-      const restLength = Math.max(0.05, Vector3.Distance(pointA, pivot));
+      const restLength = Math.max(0.05, restLengthOverride ?? Vector3.Distance(pointA, pivot));
       // Tuned to the lighter side: natural frequency and damping ratio from config.
       const mass = b ? Math.min(a.props.mass, b.props.mass) : a.props.mass;
       const omega = 2 * Math.PI * CONFIG.joints.springFrequency;
@@ -225,7 +226,7 @@ export class JointManager {
       const bBody = old.b ? old.b.body : old.bBody;
       // The rebuilt side keeps its transform, so B's stored local pivot still maps to the right world point.
       const pivot = old.kind === "spring" ? old.localPivotB.rotateByQuaternionToRef(bodyRotation(bBody), new Vector3()).addInPlace(bBody.transformNode.position) : anchorA;
-      const fresh = this.create(old.kind, old.a, bBody, old.b, pivot, axis, anchorA);
+      const fresh = this.create(old.kind, old.a, bBody, old.b, pivot, axis, anchorA, old.spring?.restLength);
       if (fresh && old.kind === "motor") this.setMotorSpeed(fresh, old.motorSpeed);
     }
     this.changed();

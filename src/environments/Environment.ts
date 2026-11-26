@@ -56,6 +56,8 @@ export interface LabEnvironment {
   build(ctx: EnvironmentContext): void;
   /** Spawns the dynamic props, fields and joints for a fresh experiment. Called on load and on reset. */
   populate(ctx: PopulateContext): void;
+  /** Room collider with the given mesh name, or null. Used to reattach saved joints to the room. */
+  roomBody(name: string): PhysicsBody | null;
   /** Removes all static geometry and colliders. */
   dispose(): void;
 }
@@ -148,6 +150,10 @@ export abstract class BaseEnvironment implements LabEnvironment {
       }
     }
     return nodes.filter((o): o is SandboxObject => o !== null);
+  }
+
+  roomBody(name: string): PhysicsBody | null {
+    return this.bodies.get(name) ?? null;
   }
 
   /** Static body of a block created by this environment, for joints to the room. */

@@ -20,6 +20,10 @@ import { Deformation } from "../effects/Deformation";
 import { WaterVolumes } from "../fluids/WaterVolumes";
 import { Effects } from "../render/Effects";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { loadSettings, saveSettings, sanitizeSettings, type Settings } from "./Settings";
+import { SoundEngine } from "../audio/SoundEngine";
+import { captureExperiment, restoreExperiment, validateExperiment, type ExperimentData, type ExperimentSystems } from "../persistence/Experiment";
+import { clearSlot, downloadExperiment, listSlots, readExperimentFile, readSlot, writeSlot } from "../persistence/Storage";
 import { MATERIALS, MATERIAL_ORDER, DEFAULT_MATERIAL, type MaterialId } from "../materials/Materials";
 import { ObjectFactory, PRIMITIVE_KINDS, type PrimitiveKind, type SandboxObject } from "../objects/ObjectFactory";
 import { PlayerController, type MoveIntent } from "../player/PlayerController";
@@ -38,18 +42,7 @@ const TOOLS: readonly ToolId[] = ["hand", "force", "field", "link", "blast"];
 /** Particle budget per graphics quality. */
 const FX_BUDGET: Record<QualityLevel, number> = { low: 0.4, medium: 0.75, high: 1 };
 
-const QUALITY_KEY = "momentum.quality";
 const IDLE: MoveIntent = { forward: 0, strafe: 0, sprint: false, jump: false };
-
-function loadQuality(): QualityLevel {
-  try {
-    const v = localStorage.getItem(QUALITY_KEY);
-    if (v && (QUALITY_ORDER as readonly string[]).includes(v)) return v as QualityLevel;
-  } catch {
-    /* storage unavailable */
-  }
-  return "medium";
-}
 
 /** Composition root: builds every system and runs the frame loop. */
 export class App {
@@ -73,7 +66,9 @@ export class App {
   selectedMaterial: MaterialId = DEFAULT_MATERIAL;
   tool: ToolId = "hand";
   mode: HudMode = "menu";
-  quality: QualityLevel = loadQuality();
+  readonly settings: Settings = loadSettings();
+  quality: QualityLevel = this.settings.quality;
+  readonly sound = new SoundEngine();
   selectedKind: PrimitiveKind = "box";
 
   private readonly camera: FreeCamera;
@@ -88,7 +83,8 @@ export class App {
   /** Camera shake amplitude in metres (visual), decays every frame. */
   private shake = 0;
   private frame = 0;
-  private baseFov = 1.12;
+  private baseFov = (this.settings.fov * Math.PI) / 180;
+  private everEntered = false;
 
   constructor(
     private readonly engine: AbstractEngine,
@@ -144,15 +140,23 @@ export class App {
     this.overlay = new VectorOverlay(this.scene);
 
     this.input = new InputManager(canvas);
-    this.hud = new Hud(uiRoot, ENVIRONMENTS, PRIMITIVE_KINDS);
+    this.hud = new Hud(uiRoot, ENVIRONMENTS, PRIMITIVE_KINDS, TOOLS);
     this.hud.setEnvironment(this.environment.id, this.environment.name);
     this.hud.setSelected(this.selectedKind);
     this.selectMaterial(this.selectedMaterial);
-    this.hud.onEnter = () => this.input.requestLock();
+    this.wireMenu();
+    this.applySettings();
     this.input.onLockChange = (locked) => {
       this.mode = locked ? "play" : this.pendingEdit ? "edit" : "menu";
       this.pendingEdit = false;
       this.hud.setMode(this.mode);
+      if (locked && !this.everEntered) {
+        this.everEntered = true;
+        this.hud.menu.setResumable(true);
+        if (!this.settings.hintsDone) this.hud.onboarding.start();
+      }
+      if (this.mode === "menu") this.hud.menu.setSlots(listSlots());
+      if (this.mode === "edit") this.hud.onboarding.complete("edit");
       if (!locked) {
         this.grab.release();
         this.force.end();
@@ -190,7 +194,10 @@ export class App {
       if (this.selection.current) this.factory.remove(this.selection.current);
     };
     inspector.onDeselect = () => this.selection.select(null);
-    canvas.addEventListener("click", () => this.input.requestLock());
+    canvas.addEventListener("click", () => {
+      this.sound.unlock();
+      this.input.requestLock();
+    });
 
     this.applyQuality();
     window.addEventListener("resize", () => this.engine.resize());
@@ -230,20 +237,33 @@ export class App {
     this.selectMaterial(MATERIAL_ORDER[(MATERIAL_ORDER.indexOf(this.selectedMaterial) + direction + n) % n]);
   }
 
-  /** Tears down the current environment and experiment and loads another one. */
+  /** Loads another environment with its starting experiment (or reloads the current one). */
   loadEnvironment(id: string): void {
+    this.switchEnvironment(id, true);
+  }
+
+  /**
+   * Tears down the current experiment and switches to environment `id`. The static room is
+   * rebuilt only when it actually changes. With `populate` false the room is left empty
+   * (used when a saved experiment is about to be restored into it).
+   */
+  private switchEnvironment(id: string, populate: boolean): void {
     const entry = ENVIRONMENTS.find((e) => e.id === id);
-    if (!entry || id === this.environment.id) return;
+    if (!entry) return;
     this.clearExperiment();
-    this.environment.dispose();
-    this.environment = entry.create();
-    this.environment.build({ scene: this.scene, materials: this.materials });
-    this.scene.fogColor = this.environment.lightRig.fogColor;
-    this.lighting.applyEnvironment(this.environment);
-    this.pipeline.bakeReflections(this.environment);
-    this.startExperiment();
-    this.hud.setEnvironment(this.environment.id, this.environment.name);
-    this.hud.toast(this.environment.name);
+    if (id !== this.environment.id) {
+      this.environment.dispose();
+      this.environment = entry.create();
+      this.environment.build({ scene: this.scene, materials: this.materials });
+      this.scene.fogColor = this.environment.lightRig.fogColor;
+      this.lighting.applyEnvironment(this.environment);
+      this.pipeline.bakeReflections(this.environment);
+      this.hud.setEnvironment(this.environment.id, this.environment.name);
+    }
+    if (populate) {
+      this.startExperiment();
+      this.hud.toast(this.environment.name);
+    }
   }
 
   nextEnvironment(): void {
@@ -267,18 +287,24 @@ export class App {
     this.destruction.onFracture = (parent, fragments, point) => {
       const c = MATERIALS[parent.materialId].look.color;
       this.effects.burst("dust", point, 14 + fragments.length * 3, new Color3(c[0], c[1], c[2]), Math.cbrt(parent.props.mass / 300));
+      this.sound.fracture(MATERIALS[parent.materialId].hardness, Vector3.Distance(point, this.player.eyePosition));
     };
     this.destruction.onImpact = (obj, deltaV, direction, point) => {
       this.deformation.impact(obj, deltaV, direction);
+      if (deltaV > 1.5) this.sound.impact(deltaV / 14, MATERIALS[obj.materialId].hardness, obj.props.mass, Vector3.Distance(obj.mesh.position, this.player.eyePosition));
       if (deltaV > 6 && point && MATERIALS[obj.materialId].hardness >= 4) this.effects.burst("sparks", point, Math.min(40, deltaV * 2.5));
     };
     this.explosions.onDetonate = (wave) => {
       this.effects.explosion(wave);
       const distance = Vector3.Distance(wave.center, this.player.eyePosition);
+      this.sound.explosion(wave.radius / 10, distance);
       this.shake = Math.min(0.35, this.shake + (wave.radius / 10) * (1.6 / (1 + distance)));
     };
     this.water.onSplash = (obj, point, speed) => {
-      if (speed > 1) this.effects.burst("splash", point, Math.min(60, 10 + speed * 5), undefined, Math.cbrt(obj.props.mass / 200));
+      if (speed > 1) {
+        this.effects.burst("splash", point, Math.min(60, 10 + speed * 5), undefined, Math.cbrt(obj.props.mass / 200));
+        this.sound.splash(speed / 8, Vector3.Distance(point, this.player.eyePosition));
+      }
     };
   }
 
@@ -402,14 +428,119 @@ export class App {
   }
 
   cycleQuality(): void {
-    this.quality = QUALITY_ORDER[(QUALITY_ORDER.indexOf(this.quality) + 1) % QUALITY_ORDER.length];
-    try {
-      localStorage.setItem(QUALITY_KEY, this.quality);
-    } catch {
-      /* storage unavailable */
-    }
-    this.applyQuality();
+    this.updateSettings({ quality: QUALITY_ORDER[(QUALITY_ORDER.indexOf(this.quality) + 1) % QUALITY_ORDER.length] });
     this.hud.toast(`Graphics quality: ${this.quality}`);
+  }
+
+  /** Changes settings, applies them and stores them in the browser. */
+  updateSettings(change: Partial<Settings>): void {
+    Object.assign(this.settings, sanitizeSettings({ ...this.settings, ...change }));
+    saveSettings(this.settings);
+    this.applySettings();
+  }
+
+  private applySettings(): void {
+    const s = this.settings;
+    this.player.sensitivity = s.sensitivity;
+    this.player.invertY = s.invertY;
+    this.baseFov = (s.fov * Math.PI) / 180;
+    this.sound.setVolume(s.volume);
+    if (this.quality !== s.quality) {
+      this.quality = s.quality;
+      this.applyQuality();
+    }
+    this.hud.menu.setSettings(s);
+  }
+
+  // --- experiments -----------------------------------------------------------
+
+  private experimentSystems(): ExperimentSystems {
+    return {
+      environmentId: this.environment.id,
+      world: this.world,
+      factory: this.factory,
+      joints: this.joints,
+      fields: this.fields,
+      water: this.water,
+      destruction: this.destruction,
+      roomBody: (name) => this.environment.roomBody(name),
+    };
+  }
+
+  captureExperiment(): ExperimentData {
+    return captureExperiment(this.experimentSystems());
+  }
+
+  /**
+   * Loads untrusted experiment data (a slot or an imported file). Returns a message for the
+   * user; nothing is changed when the data is not a valid save.
+   */
+  loadExperiment(raw: unknown): { ok: boolean; message: string } {
+    let data: ExperimentData;
+    try {
+      data = validateExperiment(raw, ENVIRONMENTS.map((e) => e.id));
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : "That is not a valid experiment." };
+    }
+    this.switchEnvironment(data.environment, false);
+    const report = restoreExperiment(data, this.experimentSystems());
+    this.hud.inspector.setGravity(data.gravityY);
+    this.hud.inspector.setDestructionLevel(this.destruction.level);
+    this.player.teleport(this.environment.spawnPoint, this.environment.spawnYaw);
+    this.world.paused = false;
+    this.world.timeScale = 1;
+    const skipped = report.skipped ? ` (${report.skipped} item${report.skipped === 1 ? "" : "s"} could not be restored)` : "";
+    return { ok: true, message: `Loaded ${report.objects} objects and ${report.joints} joints${skipped}.` };
+  }
+
+  private wireMenu(): void {
+    const menu = this.hud.menu;
+    menu.onEnter = () => {
+      this.sound.unlock();
+      this.input.requestLock();
+    };
+    menu.onUiSound = () => {
+      this.sound.unlock();
+      this.sound.click();
+    };
+    menu.onShowGuide = () => this.hud.toggleGuide();
+    menu.onEnvironment = (id) => {
+      this.switchEnvironment(id, true);
+      menu.setStatus("");
+    };
+    menu.onSettings = (change) => this.updateSettings(change);
+    menu.onResetHints = () => {
+      this.updateSettings({ hintsDone: false });
+      this.hud.onboarding.start();
+    };
+    menu.onSave = (slot) => {
+      const ok = writeSlot(slot, this.captureExperiment());
+      menu.setSlots(listSlots());
+      menu.setStatus(ok ? `Saved to slot ${slot}.` : "Could not save: browser storage is unavailable or full.", !ok);
+    };
+    menu.onLoad = (slot) => {
+      const result = this.loadExperiment(readSlot(slot));
+      menu.setStatus(result.message, !result.ok);
+    };
+    menu.onDeleteSlot = (slot) => {
+      clearSlot(slot);
+      menu.setSlots(listSlots());
+      menu.setStatus(`Slot ${slot} cleared.`);
+    };
+    menu.onExport = () => {
+      downloadExperiment(this.captureExperiment());
+      menu.setStatus("Experiment exported as a .json file.");
+    };
+    menu.onImport = (file) => {
+      readExperimentFile(file)
+        .then((raw) => {
+          const result = this.loadExperiment(raw);
+          menu.setStatus(result.message, !result.ok);
+        })
+        .catch((err: unknown) => menu.setStatus(err instanceof Error ? err.message : "Could not read that file.", true));
+    };
+    this.hud.onboarding.onFinished = () => this.updateSettings({ hintsDone: true });
+    menu.setSlots(listSlots());
   }
 
   deleteTarget(): boolean {
@@ -448,10 +579,13 @@ export class App {
         sprint: input.isDown("ShiftLeft") || input.isDown("ShiftRight"),
         jump: input.wasPressed("Space"),
       };
+      if (intent.forward !== 0 || intent.strafe !== 0) this.hud.onboarding.complete("move");
       this.handleActions();
     }
 
-    this.player.update(dt, intent);
+    // The menu is a pause screen: nothing moves while it is open (including before first entry).
+    const frozen = this.mode === "menu";
+    if (!frozen) this.player.update(dt, intent);
     this.syncCamera(dt, intent.sprint && (intent.forward !== 0 || intent.strafe !== 0));
 
     const eye = this.player.eyePosition;
@@ -459,9 +593,9 @@ export class App {
     if (this.grab.held) this.grab.setHoldPoint(eye, dir);
     if (this.force.target) this.force.setDirection(dir);
 
-    const simDt = this.world.step(dt);
+    const simDt = frozen ? 0 : this.world.step(dt);
     this.deformation.update(simDt);
-    this.effects.update(this.explosions.waves, this.world.paused ? 0 : this.world.timeScale);
+    this.effects.update(this.explosions.waves, frozen || this.world.paused ? 0 : this.world.timeScale);
 
     if (++this.frame % 30 === 0) {
       this.factory.cullOutOfBounds();
@@ -473,7 +607,7 @@ export class App {
     const active = this.grab.held ?? this.force.target;
     const target = active ?? (locked ? this.pickObject() : null);
     this.hud.setTarget(target ? `${target.kind} · ${formatMass(target.props.mass)}${target.props.isStatic ? " · static" : ""}` : null, active !== null);
-    this.hud.setTool(this.tool, this.toolDetail());
+    this.hud.setTool(this.tool, this.toolDetail(), TOOLS.indexOf(this.tool));
     this.fieldVisuals.update();
 
     const selected = this.selection.current;
@@ -498,7 +632,7 @@ export class App {
         bodies: this.world.bodyCount,
         backend: this.backend,
         quality: this.quality,
-        paused: this.world.paused,
+        paused: this.world.paused || frozen,
         timeScale: this.world.timeScale,
       },
       performance.now(),
@@ -516,8 +650,13 @@ export class App {
     PRIMITIVE_KINDS.forEach((kind, i) => {
       if (input.wasPressed(`Digit${i + 1}`)) this.selectKind(kind);
     });
-    if (input.wasPressed("KeyF")) this.spawnSelected();
-    if (input.wasPressed("KeyQ")) this.setTool(TOOLS[(TOOLS.indexOf(this.tool) + 1) % TOOLS.length]);
+    if (input.wasPressed("KeyF") && this.spawnSelected()) this.hud.onboarding.complete("spawn");
+    if (input.wasPressed("KeyQ")) {
+      const step = input.isDown("ShiftLeft") || input.isDown("ShiftRight") ? TOOLS.length - 1 : 1;
+      this.setTool(TOOLS[(TOOLS.indexOf(this.tool) + step) % TOOLS.length]);
+      this.sound.click(660);
+      this.hud.onboarding.complete("tool");
+    }
     if (input.wasPressed("KeyM")) this.cycleMaterial(1);
     if (input.wasPressed("KeyN")) this.cycleMaterial(-1);
     if (input.wasPressed("F4")) this.nextEnvironment();
@@ -543,7 +682,7 @@ export class App {
       }
       if (input.wheel !== 0) this.linkTool.cycleKind(input.wheel);
     } else if (this.tool === "hand") {
-      if (input.wasPressed("Mouse0")) this.grab.tryGrab(eye, dir);
+      if (input.wasPressed("Mouse0") && this.grab.tryGrab(eye, dir)) this.hud.onboarding.complete("grab");
       if (input.wasReleased("Mouse0")) this.grab.release();
       if (input.wasPressed("Mouse2")) this.grab.throwOrPush(eye, dir);
       if (input.wheel !== 0 && this.grab.held) this.grab.adjustDistance(input.wheel);
@@ -554,7 +693,10 @@ export class App {
       if (input.wheel !== 0) this.force.adjustLevel(-input.wheel);
       if (input.wasPressed("KeyV")) this.force.toggleMode();
     }
-    if (input.wasPressed("KeyE")) this.selectTarget();
+    if (input.wasPressed("KeyE")) {
+      this.selectTarget();
+      if (this.selection.current) this.hud.onboarding.complete("select");
+    }
     if (input.wasPressed("KeyC")) this.duplicateSelected();
     if (input.wasPressed("KeyX") || input.wasPressed("Delete")) this.deleteTarget();
     if (input.wasPressed("KeyP")) this.togglePause();

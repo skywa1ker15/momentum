@@ -25,9 +25,10 @@ Pooled particle effects with an adaptive budget; explosions as an expanding pres
 
 Not done, and why: free-flowing water (a particle fluid) was replaced by buoyancy volumes, which are cheaper and physically checkable; fragments are still box-shaped; no prefabricated gears or pistons; snapping and non-vertical world gravity remain open. These are candidates for Phase 6 where they fit the construction UI, otherwise they stay documented as limitations.
 
-## Phase 6 - UI and experience
-- Multi-select. Full tool wheel / panels, settings (graphics, controls, sensitivity), environment selector, save / load experiments (JSON, local storage + file export), onboarding, audio.
-- Construction Zone and Observation environments finished.
+## Phase 6 - UI and experience (complete)
+Main / pause menu with environment cards, experiment save slots with file export and import, and settings (quality, sensitivity, field of view, invert look, volume); tool strip; getting-started checklist; synthesised sound; Construction Zone environment with four working machines.
+
+Dropped from the plan, with reasons: multi-select (every tool acts on one aimed object; it would need a second interaction model for little gain), snapping and non-vertical world gravity (not requested in the brief; left as documented limitations).
 
 ## Phase 7 - Optimisation and release
 - Profiling on the target machine (MSI Thin 15: Core i7, RTX 2050, 16 GB), object pooling, LOD, sleeping tuning, adaptive quality, WebGPU as default once verified, final production build.

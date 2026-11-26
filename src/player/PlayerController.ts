@@ -25,6 +25,9 @@ const HALF_PI = Math.PI / 2;
 export class PlayerController {
   yaw = 0;
   pitch = 0;
+  /** Multiplier on the base mouse sensitivity. */
+  sensitivity = 1;
+  invertY = false;
   grounded = false;
 
   private readonly cc: PhysicsCharacterController;
@@ -60,7 +63,8 @@ export class PlayerController {
   }
 
   look(dxPixels: number, dyPixels: number): void {
-    const s = CONFIG.player.mouseSensitivity;
+    const s = CONFIG.player.mouseSensitivity * this.sensitivity;
+    if (this.invertY) dyPixels = -dyPixels;
     this.yaw = (this.yaw + dxPixels * s) % (Math.PI * 2);
     this.pitch = Math.min(HALF_PI - 0.02, Math.max(-HALF_PI + 0.02, this.pitch + dyPixels * s));
   }

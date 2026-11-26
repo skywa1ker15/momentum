@@ -264,3 +264,109 @@ kbd {
 @media (max-width: 1100px) {
   .chip-density { display: none; }
 }
+
+/* --- phase 6: menu ------------------------------------------------------- */
+.menu-card {
+  display: grid; grid-template-columns: 190px 1fr;
+  width: min(860px, calc(100vw - 40px)); height: min(540px, calc(100vh - 60px));
+  overflow: hidden;
+  animation: menu-in 0.32s ease both;
+}
+@keyframes menu-in { from { opacity: 0; transform: translateY(10px) scale(0.985); } to { opacity: 1; transform: none; } }
+.menu-nav { display: flex; flex-direction: column; gap: 4px; padding: 26px 14px; border-right: 1px solid var(--border); background: rgba(255, 255, 255, 0.015); }
+.menu-brand { padding: 0 10px 18px; font-size: 12px; font-weight: 600; letter-spacing: 0.34em; }
+.menu-tab {
+  appearance: none; cursor: pointer; text-align: left; padding: 9px 10px; border-radius: 9px;
+  border: 1px solid transparent; background: transparent; color: var(--text-dim);
+  font: 500 11px var(--font); letter-spacing: 0.14em; text-transform: uppercase;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+.menu-tab:hover, .menu-tab:focus-visible { color: var(--text); background: rgba(255, 255, 255, 0.04); outline: none; }
+.menu-tab.active { color: var(--text); background: var(--accent-soft); border-color: rgba(90, 216, 255, 0.35); }
+.menu-content { position: relative; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.15) transparent; }
+.menu-panel { display: none; padding: 30px 34px 28px; animation: panel-in 0.26s ease both; }
+.menu-panel.active { display: block; }
+@keyframes panel-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+.menu-panel h1 { margin: 14px 0 12px; font-size: 34px; font-weight: 300; letter-spacing: 0.42em; }
+.menu-panel h2 { margin: 0 0 10px; font-size: 12px; font-weight: 600; letter-spacing: 0.26em; text-transform: uppercase; }
+.menu-panel p { margin: 0 0 24px; max-width: 460px; color: var(--text-dim); font-size: 13.5px; line-height: 1.6; }
+.menu-panel p.menu-note { margin-bottom: 16px; font-size: 12px; max-width: 520px; }
+.menu-inline { display: block; margin-top: 18px; }
+.menu-panel .start-hint { margin-top: 22px; }
+
+.env-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.env-card {
+  appearance: none; cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 8px; min-height: 124px;
+  padding: 16px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255, 255, 255, 0.03); color: var(--text);
+  font-family: var(--font); transition: transform 0.18s, border-color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+.env-card:hover, .env-card:focus-visible { transform: translateY(-2px); border-color: rgba(90, 216, 255, 0.45); background: rgba(90, 216, 255, 0.07); outline: none; }
+.env-card.active { border-color: rgba(90, 216, 255, 0.5); box-shadow: 0 0 26px rgba(90, 216, 255, 0.1); }
+.env-name { font-size: 12px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; }
+.env-desc { flex: 1; color: var(--text-dim); font-size: 12px; line-height: 1.5; }
+.env-state { color: var(--accent); font: 500 10px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; }
+
+.slot-row { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.slot-number { font: 500 12px var(--mono); color: var(--accent); }
+.slot-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.slot-title { font-size: 12.5px; font-weight: 500; letter-spacing: 0.06em; }
+.slot-title.empty { color: var(--text-dim); font-weight: 400; }
+.slot-meta { color: var(--text-dim); font: 400 10.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slot-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.file-actions { padding-top: 16px; }
+.chip-button:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+.menu-status { min-height: 18px; margin-top: 14px; font-size: 12px; color: var(--accent); }
+.menu-status.error { color: var(--warn); }
+
+.setting-row { display: grid; grid-template-columns: 170px 1fr 64px; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.setting-row > .slot-actions, .setting-row > .chip-button { grid-column: 2 / 4; justify-self: start; }
+.setting-row.toggle-row { display: grid; cursor: pointer; }
+.setting-row.toggle-row .toggle-track { grid-column: 2; justify-self: start; }
+.setting-label { color: var(--text-dim); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
+.setting-row input[type="range"] { appearance: none; -webkit-appearance: none; width: 100%; height: 14px; margin: 0; background: transparent; cursor: pointer; }
+.setting-row input[type="range"]::-webkit-slider-runnable-track { height: 2px; border-radius: 2px; background: rgba(255, 255, 255, 0.16); }
+.setting-row input[type="range"]::-moz-range-track { height: 2px; border-radius: 2px; background: rgba(255, 255, 255, 0.16); }
+.setting-row input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -5px; border-radius: 50%; background: var(--text); border: 2px solid var(--accent); box-shadow: 0 0 10px rgba(90, 216, 255, 0.35); }
+.setting-row input[type="range"]::-moz-range-thumb { width: 9px; height: 9px; border-radius: 50%; background: var(--text); border: 2px solid var(--accent); }
+.setting-row input[type="range"]:focus-visible { outline: none; }
+.setting-row .stat-value { text-align: right; }
+
+@media (max-width: 640px) {
+  .menu-card { grid-template-columns: 1fr; height: auto; max-height: calc(100vh - 40px); }
+  .menu-nav { flex-direction: row; flex-wrap: wrap; padding: 12px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .menu-brand { display: none; }
+  .menu-panel { padding: 20px; }
+  .setting-row { grid-template-columns: 1fr; gap: 6px; }
+  .setting-row > .slot-actions, .setting-row > .chip-button, .setting-row.toggle-row .toggle-track { grid-column: 1; }
+}
+
+/* --- tool strip ---------------------------------------------------------- */
+.tool-strip {
+  position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 4px; opacity: 0; transition: opacity 0.25s;
+}
+.in-play .tool-strip, .edit-mode .tool-strip { opacity: 1; }
+.tool-pill {
+  padding: 4px 10px; border-radius: 999px; border: 1px solid transparent;
+  font: 500 9.5px var(--font); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-dim);
+  background: rgba(14, 19, 28, 0.35); transition: color 0.18s, border-color 0.18s, background 0.18s, transform 0.18s;
+}
+.tool-pill.active { color: var(--text); border-color: rgba(90, 216, 255, 0.45); background: rgba(90, 216, 255, 0.14); transform: translateY(-1px); }
+.toast { bottom: 132px; }
+
+/* --- onboarding ---------------------------------------------------------- */
+.onboarding {
+  position: absolute; right: 20px; bottom: 22px; width: 250px; padding: 14px 16px;
+  opacity: 0; visibility: hidden; transform: translateY(8px);
+  transition: opacity 0.3s, transform 0.3s, visibility 0.3s;
+}
+.in-play .onboarding.visible { opacity: 1; visibility: visible; transform: none; }
+.onboarding-title { margin-bottom: 8px; color: var(--accent); font-size: 10.5px; letter-spacing: 0.22em; text-transform: uppercase; }
+.onboarding-step { display: flex; align-items: center; gap: 10px; padding: 4px 0; color: var(--text); font-size: 11.5px; transition: color 0.25s, opacity 0.25s; }
+.onboarding-step .tick { flex: none; width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.3); transition: background 0.25s, border-color 0.25s, box-shadow 0.25s; }
+.onboarding-step.done { color: var(--text-dim); opacity: 0.7; }
+.onboarding-step.done .tick { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px rgba(90, 216, 255, 0.5); }
+.onboarding.finished .onboarding-title::after { content: " · done"; color: var(--text-dim); }
+@media (max-width: 1000px) {
+  .onboarding { display: none; }
+}

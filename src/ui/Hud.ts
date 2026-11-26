@@ -1,6 +1,8 @@
 import "./styles.css";
 import type { PrimitiveKind } from "../objects/ObjectFactory";
 import { Inspector } from "./Inspector";
+import { Menu, type MenuEnvironment } from "./Menu";
+import { Onboarding } from "./Onboarding";
 
 export interface HudStats {
   fps: number;
@@ -32,7 +34,7 @@ const CONTROLS: Array<[string, Array<[string, string]>]> = [
   ["Link tool", [["LMB LMB", "Join an object to another object or to the room"], ["RMB", "Remove joints on target / cancel"], ["Scroll", "Weld, hinge, ball, motor, slider or spring"]]],
   ["Blast tool", [["LMB", "Detonate a charge where you aim"], ["Scroll", "Charge size"]]],
   ["Simulation", [["P", "Pause / resume"], ["[  ]", "Slower / faster"], ["R", "Reset experiment"], ["F4", "Next environment"], ["B", "Destruction intensity: off, low, normal, high"]]],
-  ["Interface", [["Q", "Next tool"], ["Tab", "Edit mode: free the mouse to edit properties"], ["H", "Toggle this guide"], ["F2", "Cycle graphics quality"], ["Esc", "Release mouse"]]],
+  ["Interface", [["Q", "Next tool (Shift+Q previous)"], ["Tab", "Edit mode: free the mouse to edit properties"], ["H", "Toggle this guide"], ["F2", "Cycle graphics quality"], ["Esc", "Menu: environments, save / load, settings"]]],
 ];
 
 export type HudMode = "menu" | "play" | "edit";
@@ -46,11 +48,13 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, h
 
 /** DOM overlay. Purely presentational: reads state passed in, raises intent through callbacks. */
 export class Hud {
-  onEnter: (() => void) | null = null;
   readonly inspector: Inspector;
 
   private readonly root: HTMLElement;
-  private readonly overlay: HTMLElement;
+  readonly menu: Menu;
+  readonly onboarding: Onboarding;
+  private readonly toolStrip: HTMLElement;
+  private readonly toolPills: HTMLElement[] = [];
   private readonly guide: HTMLElement;
   private readonly crosshair: HTMLElement;
   private readonly targetLabel: HTMLElement;
@@ -65,7 +69,7 @@ export class Hud {
   private toastTimer = 0;
   private lastStatsAt = 0;
 
-  constructor(parent: HTMLElement, environments: ReadonlyArray<{ id: string; name: string }>, kinds: readonly PrimitiveKind[]) {
+  constructor(parent: HTMLElement, environments: readonly MenuEnvironment[], kinds: readonly PrimitiveKind[], tools: readonly string[]) {
     this.root = el("div", "hud");
     parent.appendChild(this.root);
 
@@ -103,6 +107,15 @@ export class Hud {
     hotbar.appendChild(el("div", "hotbar-hint", "<kbd>H</kbd> controls"));
     this.root.appendChild(hotbar);
 
+    this.toolStrip = el("div", "tool-strip");
+    for (const tool of tools) {
+      const pill = el("div", "tool-pill", tool);
+      this.toolStrip.appendChild(pill);
+      this.toolPills.push(pill);
+    }
+    this.root.appendChild(this.toolStrip);
+    this.onboarding = new Onboarding(this.root);
+
     this.inspector = new Inspector(this.root, environments);
     this.editBanner = el("div", "panel edit-banner", "Edit mode &nbsp;·&nbsp; click the viewport or press <kbd>Tab</kbd> to return");
     this.root.appendChild(this.editBanner);
@@ -128,23 +141,11 @@ export class Hud {
     this.guide.appendChild(grid);
     this.root.appendChild(this.guide);
 
-    this.overlay = el("div", "overlay");
-    const card = el("div", "panel start-card");
-    card.append(
-      el("div", "start-eyebrow", "Experimental physics facility"),
-      el("h1", undefined, "MOMENTUM"),
-      el("p", undefined, "A sandbox laboratory. Spawn objects in real materials, bend gravity with fields, join parts with hinges and motors, and inspect every body simulated by the Havok engine."),
-    );
-    const enter = el("button", "enter-button", "Enter laboratory");
-    enter.type = "button";
-    enter.addEventListener("click", () => this.onEnter?.());
-    card.append(enter, el("div", "start-hint", "<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp;·&nbsp; <kbd>F</kbd> spawn &nbsp;·&nbsp; <kbd>LMB</kbd> grab &nbsp;·&nbsp; <kbd>H</kbd> all controls"));
-    this.overlay.appendChild(card);
-    this.root.appendChild(this.overlay);
+    this.menu = new Menu(this.root, environments);
   }
 
   setMode(mode: HudMode): void {
-    this.overlay.classList.toggle("hidden", mode !== "menu");
+    this.menu.setVisible(mode === "menu");
     this.root.classList.toggle("in-play", mode === "play");
     this.root.classList.toggle("edit-mode", mode === "edit");
     this.inspector.setEditable(mode === "edit");
@@ -153,6 +154,7 @@ export class Hud {
   setEnvironment(id: string, name: string): void {
     this.brandSub.textContent = name;
     this.inspector.setEnvironment(id);
+    this.menu.setEnvironment(id);
   }
 
   /** Material that new objects are spawned with. */
@@ -162,7 +164,8 @@ export class Hud {
   }
 
   /** `detail` is the tool's current setting, e.g. the force magnitude. */
-  setTool(name: string, detail: string): void {
+  setTool(name: string, detail: string, index = -1): void {
+    this.toolPills.forEach((pill, i) => pill.classList.toggle("active", i === index));
     const html = `<kbd>Q</kbd><span class="tool-name">${name}</span>${detail ? `<span class="tool-detail">${detail}</span>` : ""}`;
     if (this.toolChip.innerHTML !== html) this.toolChip.innerHTML = html;
   }

@@ -18,6 +18,7 @@ export class MaterialLibrary {
   readonly emissiveAmber: PBRMaterial;
   readonly lightPanel: PBRMaterial;
   readonly emissiveViolet: PBRMaterial;
+  readonly emissiveGreen: PBRMaterial;
   /** Render material for each physical material preset. */
   readonly solids: Record<MaterialId, PBRMaterial>;
 
@@ -44,6 +45,7 @@ export class MaterialLibrary {
     this.lightPanel = this.emissive("mat-light-panel", new Color3(0.86, 0.93, 1.0), 2.2);
 
     this.emissiveViolet = this.emissive("mat-emissive-violet", new Color3(0.62, 0.42, 1.0), 1.6);
+    this.emissiveGreen = this.emissive("mat-emissive-green", new Color3(0.3, 1.0, 0.62), 1.4);
 
     this.solids = {} as Record<MaterialId, PBRMaterial>;
     for (const def of Object.values(MATERIALS)) {

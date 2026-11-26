@@ -16,6 +16,7 @@ src/
   core/
     App.ts                Composition root and frame loop; player-facing actions
     config.ts             Tuning constants, limits, graphics quality presets
+    Settings.ts           User settings: load, sanitise, save (browser storage)
   render/                 VISUAL ONLY
     EngineFactory.ts      WebGL 2 / WebGPU engine creation with fallback
     MaterialLibrary.ts    Shared PBR materials, procedural textures
@@ -32,6 +33,7 @@ src/
     TestChamber.ts        Test Chamber 01
     GravityLab.ts         Gravity Laboratory (emitter field, upward column)
     DestructionArena.ts   Destruction Arena (bonded brick wall, wrecking ball, glass panes)
+    ConstructionZone.ts   Construction Zone (turntable, seesaw, Newton's cradle, sprung platform, parts depot)
     index.ts              Environment registry
   materials/
     Materials.ts          Physical material presets (density, friction, restitution, hardness, durability)
@@ -39,6 +41,11 @@ src/
     GravityFields.ts      Point fields (inverse-square) and gravity zones, applied as engine forces
   construction/
     Joints.ts             Weld / hinge / ball / motor joints (Havok 6-DoF constraints); welds are breakable bonds
+  persistence/
+    Experiment.ts         Capture, validate and restore an experiment (plain JSON data)
+    Storage.ts            Save slots in browser storage, file export / import
+  audio/
+    SoundEngine.ts        Synthesised sound effects (Web Audio), rate-limited
   effects/
     Explosions.ts         SIMULATED blast: pressure front, impulse per presented area, line of sight
     Deformation.ts        VISUAL squash of soft materials, driven by measured impacts
@@ -63,11 +70,13 @@ src/
   ui/
     Hud.ts, styles.css    DOM overlay (glass panels), control guide, start screen, modes
     Inspector.ts          Live readouts and property / gravity editors
+    Menu.ts               Main / pause menu: home, environments, experiments, settings
+    Onboarding.ts         Getting-started checklist
     format.ts             SI formatting
 tests/                    Vitest suites running real Havok headlessly
 ```
 
-Planned modules (created when their phase starts, not before): `persistence/` (save / load experiments), `ui/panels/` (inspector, settings, environment select).
+All planned modules now exist.
 
 ## Frame loop (`App.tick`)
 
@@ -87,11 +96,17 @@ Planned modules (created when their phase starts, not before): `persistence/` (s
 
 ## Interaction modes
 
-- **menu** - start screen, pointer free.
+- **menu** - main / pause menu, pointer free. The simulation and the player are frozen while it is open (also before first entry, so an environment's opening moment is not missed).
 - **play** - pointer locked; movement, tools and hotkeys active.
 - **edit** - entered with Tab; pointer free, inspector editors active, simulation still running. Tab or a click on the viewport returns to play.
 
 `App` owns the mode; `Hud.setMode` reflects it. Property edits flow `Inspector -> App -> ObjectFactory.setProps -> Havok`, and `ObjectFactory` clamps to `PROP_LIMITS`.
+
+## Persistence
+
+- `captureExperiment` produces plain data; `validateExperiment` treats its input as untrusted (a picked file or storage contents), checks every field and throws a readable error; `restoreExperiment` rebuilds into an already-loaded, empty environment and reports anything it had to skip.
+- Joints are saved in the bodies' own frames (local pivots and axis), so they are rebuilt exactly whatever the bodies' poses. Joints to the room are saved by the room collider's mesh name and resolved with `LabEnvironment.roomBody`.
+- Object ids are not preserved; references are remapped on load.
 
 ## Physics conventions
 

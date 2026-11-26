@@ -1,5 +1,34 @@
 # Development log
 
+## 2026-11-26 - Phase 6: UI and experience
+
+### Implemented
+- **Menu.** Replaces the start screen and doubles as the pause menu (Esc). Tabs: Laboratory (enter / resume), Environments (four cards), Experiments, Settings. The simulation and player are frozen while it is open.
+- **Save and load.** Three browser-storage slots plus export to and import from a JSON file. A save holds objects (shape, size, material, pose, velocities, all properties, fragment generation), joints (including joints to the room, motor speeds and spring rest lengths), gravity fields, water volumes, world gravity and destruction level. Input is validated field by field; invalid data is rejected with a reason and nothing changes. Anything that cannot be restored is counted and reported.
+- **Settings.** Graphics quality, mouse sensitivity, field of view, invert vertical look, sound volume; sanitised and stored in the browser; the earlier quality setting is carried over.
+- **Construction Zone.** Fourth environment: motorised turntable, seesaw on a hinge, Newton's cradle (five steel balls on planar hinges), a platform on a slider and spring, and a depot of beams, planks and wheels.
+- **Tool strip** above the hotbar showing all five tools; Shift+Q cycles backwards.
+- **Getting-started checklist**: six steps that tick themselves off; can be shown again from Settings.
+- **Sound.** Synthesised with Web Audio (no audio files): impact thuds shaped by hardness and mass, fracture cracks, explosions, splashes, interface clicks; distance attenuation and rate limiting.
+
+### Tested
+- `npm test`: 84 tests passing (6 new), against real Havok. New checks: a full round trip through JSON of objects, properties, velocities, hinge / motor / spring joints (one to the room), fields and water, after which the original and restored worlds evolve alike; a whole environment's starting experiment survives save and load with nothing skipped; twelve kinds of invalid save are rejected with the right reason and out-of-range world values are clamped; a joint to a missing room collider is skipped and reported; settings sanitising; the Construction Zone machines (turntable holds 1.2 rad/s, the cradle passes its swing to the far ball and stays planar, the platform is pushed down and guided vertically then settles, the seesaw tips).
+- Production build in headless Chrome with real input: all four menu tabs; settings changed and still in effect after a page reload; onboarding steps ticking off through real key and mouse input; save to a slot, switch to the Construction Zone, load the slot and get the identical state back (environment, counts, gravity); importing a file with an unknown environment and a non-JSON file gives the right error; importing a valid file loads it; sound engine running and producing sounds. All Phase 1 to 5 scenarios rerun. No console errors or warnings.
+
+### Bugs found and fixed during the phase
+- Newton's cradle did nothing: the raised ball started inside a gantry post. Gantry widened.
+- The sprung platform barely moved: a 9 t steel plate with a spring tuned to its own mass shrugged off the falling crate. Plate changed to plastic with a steel block dropped on it.
+- The seesaw's steel ball rolled off before the player arrived; replaced with a block.
+- The scene settled (and made noise) behind the start menu, so the opening motion was missed; the simulation now waits until the player enters and freezes whenever the menu is open.
+
+### Known limitations
+- Sound was verified only as "the engine runs and schedules sounds"; nobody has listened to it. Levels and timbre may need tuning by ear.
+- Export was verified by its status message and by importing the same data; the downloaded file itself was not inspected in the headless browser.
+- Saves do not include the player's position, held object, selected tool or active blasts and particles.
+- Loading a save made in a future version is refused; there is no migration path yet (version 1 is the first).
+- Multi-select, snapping and non-vertical world gravity are not implemented (see roadmap).
+- WebGPU and frame rate on the target laptop remain unverified (see Phase 1 entry).
+
 ## 2026-11-26 - Phase 5: Advanced simulation
 
 ### Implemented
