@@ -1,12 +1,28 @@
+import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
+import "@babylonjs/core/Meshes/instancedMesh";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
-import type { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import type { Mesh } from "@babylonjs/core/Meshes/mesh";
+import type { Material } from "@babylonjs/core/Materials/material";
+import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
+import type { Color3 } from "@babylonjs/core/Maths/math.color";
+import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
+import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import type { Scene } from "@babylonjs/core/scene";
+import { CONFIG } from "../core/config";
 import type { MaterialLibrary } from "../render/MaterialLibrary";
 import type { ObjectFactory } from "../objects/ObjectFactory";
+import type { GravityFields } from "../fields/GravityFields";
 
 export interface EnvironmentContext {
   scene: Scene;
   materials: MaterialLibrary;
+}
+
+export interface LightRig {
+  /** Two accent spot lights: position and aim direction. */
+  spots: [{ position: Vector3; direction: Vector3 }, { position: Vector3; direction: Vector3 }];
+  spotColor: Color3;
+  fogColor: Color3;
 }
 
 /** A self-contained interactive space: static geometry + colliders, plus the props an experiment starts with. */
@@ -18,11 +34,86 @@ export interface LabEnvironment {
   readonly spawnYaw: number;
   /** Centre of the space, used for the reflection probe and key light. */
   readonly center: Vector3;
+  /** World gravity this environment starts with (vertical, m/s^2). */
+  readonly gravityY: number;
+  readonly lightRig: LightRig;
   /** Static meshes that should cast shadows. */
   readonly shadowCasters: AbstractMesh[];
   /** Static meshes rendered into the reflection probe. */
   readonly staticMeshes: AbstractMesh[];
   build(ctx: EnvironmentContext): void;
-  /** Spawns the dynamic props for a fresh experiment. Called on load and on reset. */
-  populate(factory: ObjectFactory): void;
+  /** Spawns the dynamic props (and any fields) for a fresh experiment. Called on load and on reset. */
+  populate(factory: ObjectFactory, fields: GravityFields): void;
+  /** Removes all static geometry and colliders. */
+  dispose(): void;
+}
+
+export interface BlockOptions {
+  rotationX?: number;
+  rotationY?: number;
+  collider?: boolean;
+  castShadow?: boolean;
+  receiveShadow?: boolean;
+  friction?: number;
+}
+
+/** Shared construction helpers and clean-up for environments built from static boxes. */
+export abstract class BaseEnvironment implements LabEnvironment {
+  abstract readonly id: string;
+  abstract readonly name: string;
+  abstract readonly spawnPoint: Vector3;
+  abstract readonly spawnYaw: number;
+  abstract readonly center: Vector3;
+  abstract readonly lightRig: LightRig;
+  readonly gravityY: number = CONFIG.physics.gravity;
+  readonly shadowCasters: AbstractMesh[] = [];
+  readonly staticMeshes: AbstractMesh[] = [];
+
+  protected scene!: Scene;
+  private readonly aggregates: PhysicsAggregate[] = [];
+  private readonly sources: Mesh[] = [];
+
+  abstract build(ctx: EnvironmentContext): void;
+  abstract populate(factory: ObjectFactory, fields: GravityFields): void;
+
+  dispose(): void {
+    for (const a of this.aggregates) a.dispose();
+    for (const m of this.staticMeshes) m.dispose();
+    for (const m of this.sources) m.dispose();
+    this.aggregates.length = 0;
+    this.staticMeshes.length = 0;
+    this.sources.length = 0;
+    this.shadowCasters.length = 0;
+  }
+
+  /** Static box with an optional box collider. */
+  protected block(name: string, size: Vector3, position: Vector3, material: Material, opts: BlockOptions = {}): Mesh {
+    const mesh = CreateBox(name, { width: size.x, height: size.y, depth: size.z }, this.scene);
+    mesh.position.copyFrom(position);
+    mesh.rotationQuaternion = Quaternion.RotationYawPitchRoll(opts.rotationY ?? 0, opts.rotationX ?? 0, 0);
+    mesh.material = material;
+    mesh.receiveShadows = opts.receiveShadow ?? true;
+    if (opts.collider ?? true) {
+      this.aggregates.push(new PhysicsAggregate(mesh, PhysicsShapeType.BOX, { mass: 0, friction: opts.friction ?? 0.6, restitution: 0.1 }, this.scene));
+    }
+    if (opts.castShadow) this.shadowCasters.push(mesh);
+    this.finishStatic(mesh);
+    return mesh;
+  }
+
+  /** Registers a hidden mesh that only serves as the source of GPU instances. */
+  protected instanceSource(mesh: Mesh): Mesh {
+    mesh.isVisible = false;
+    mesh.isPickable = false;
+    this.sources.push(mesh);
+    return mesh;
+  }
+
+  /** Marks a mesh as static scenery: frozen transform, tracked for the probe and for dispose. */
+  protected finishStatic(mesh: AbstractMesh): void {
+    mesh.isPickable = false;
+    mesh.computeWorldMatrix(true);
+    mesh.freezeWorldMatrix();
+    this.staticMeshes.push(mesh);
+  }
 }

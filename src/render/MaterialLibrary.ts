@@ -2,17 +2,9 @@ import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial";
 import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import type { Scene } from "@babylonjs/core/scene";
+import { MATERIALS, type MaterialId } from "../materials/Materials";
 
 const hasDom = typeof document !== "undefined";
-
-/** Accent colours used for spawned props. */
-export const PROP_PALETTE = [
-  { name: "cyan", color: new Color3(0.1, 0.62, 0.78) },
-  { name: "amber", color: new Color3(0.86, 0.5, 0.12) },
-  { name: "ivory", color: new Color3(0.82, 0.82, 0.78) },
-  { name: "violet", color: new Color3(0.42, 0.3, 0.8) },
-  { name: "graphite", color: new Color3(0.16, 0.17, 0.2) },
-] as const;
 
 /** Shared PBR materials for the facility. One instance per look so draw calls can batch. */
 export class MaterialLibrary {
@@ -25,7 +17,9 @@ export class MaterialLibrary {
   readonly emissiveCyan: PBRMaterial;
   readonly emissiveAmber: PBRMaterial;
   readonly lightPanel: PBRMaterial;
-  readonly props: PBRMaterial[];
+  readonly emissiveViolet: PBRMaterial;
+  /** Render material for each physical material preset. */
+  readonly solids: Record<MaterialId, PBRMaterial>;
 
   constructor(private readonly scene: Scene) {
     this.floor = this.pbr("mat-floor", new Color3(0.3, 0.32, 0.36), 0.15, 0.42);
@@ -49,9 +43,17 @@ export class MaterialLibrary {
     this.emissiveAmber = this.emissive("mat-emissive-amber", new Color3(1.0, 0.55, 0.15), 1.4);
     this.lightPanel = this.emissive("mat-light-panel", new Color3(0.86, 0.93, 1.0), 2.2);
 
-    this.props = PROP_PALETTE.map((p, i) =>
-      this.pbr(`mat-prop-${p.name}`, p.color, i === 4 ? 0.85 : 0.05, i === 4 ? 0.4 : 0.45),
-    );
+    this.emissiveViolet = this.emissive("mat-emissive-violet", new Color3(0.62, 0.42, 1.0), 1.6);
+
+    this.solids = {} as Record<MaterialId, PBRMaterial>;
+    for (const def of Object.values(MATERIALS)) {
+      const m = this.pbr(`mat-solid-${def.id}`, new Color3(...def.look.color), def.look.metallic, def.look.roughness);
+      if (def.look.alpha !== undefined) {
+        m.alpha = def.look.alpha;
+        m.backFaceCulling = false;
+      }
+      this.solids[def.id] = m;
+    }
   }
 
   private pbr(name: string, albedo: Color3, metallic: number, roughness: number): PBRMaterial {

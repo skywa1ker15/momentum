@@ -1,15 +1,9 @@
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreateCylinder } from "@babylonjs/core/Meshes/Builders/cylinderBuilder";
 import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
-import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
-import "@babylonjs/core/Meshes/instancedMesh";
-import type { Mesh } from "@babylonjs/core/Meshes/mesh";
-import type { Material } from "@babylonjs/core/Materials/material";
-import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
-import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
-import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
-import type { Scene } from "@babylonjs/core/scene";
-import type { EnvironmentContext, LabEnvironment } from "./Environment";
+import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { BaseEnvironment, type BlockOptions, type EnvironmentContext, type LightRig } from "./Environment";
 import type { ObjectFactory } from "../objects/ObjectFactory";
 
 const W = 36; // x extent
@@ -17,29 +11,25 @@ const D = 48; // z extent
 const H = 11; // ceiling height
 const T = 1; // wall thickness
 
-interface BlockOptions {
-  rotationX?: number;
-  collider?: boolean;
-  castShadow?: boolean;
-  receiveShadow?: boolean;
-  friction?: number;
-}
-
 /** Primary physics testing chamber: open floor, test pad, inclined plane, pillars and an observation deck. */
-export class TestChamber implements LabEnvironment {
+export class TestChamber extends BaseEnvironment {
   readonly id = "test-chamber";
   readonly name = "Test Chamber 01";
   readonly spawnPoint = new Vector3(0, 1.0, 12);
   readonly spawnYaw = Math.PI;
   readonly center = new Vector3(0, H / 2, 0);
-  readonly shadowCasters: AbstractMesh[] = [];
-  readonly staticMeshes: AbstractMesh[] = [];
+  readonly lightRig: LightRig = {
+    spots: [
+      { position: new Vector3(-7, 10.5, -6), direction: new Vector3(0.63, -1, 0).normalize() },
+      { position: new Vector3(7, 10.5, -6), direction: new Vector3(-0.63, -1, 0).normalize() },
+    ],
+    spotColor: new Color3(0.6, 0.9, 1.0),
+    fogColor: new Color3(0.03, 0.045, 0.065),
+  };
 
   /** Top surface of the inclined plane: start (high end) position, used to place rolling props. */
   static readonly RAMP = { x: -11, z: -12, length: 10, width: 4, angle: 0.3, centerY: 1.75 };
   static readonly DECK = { z: 20.5, top: 3.2, width: 16, depth: 7 };
-
-  private scene!: Scene;
 
   build(ctx: EnvironmentContext): void {
     const { scene, materials: m } = ctx;
@@ -96,7 +86,6 @@ export class TestChamber implements LabEnvironment {
     }
 
     this.buildObservationDeck(ctx);
-    scene.fogColor.set(0.03, 0.045, 0.065);
   }
 
   populate(factory: ObjectFactory): void {
@@ -109,7 +98,7 @@ export class TestChamber implements LabEnvironment {
           kind: "box",
           size: new Vector3(s, s, s),
           position: new Vector3((i - (n - 1) / 2) * (s + 0.02), s / 2 + row * s + 0.01, -6),
-          colorIndex: row % 2 === 0 ? 2 : 0,
+          material: "wood",
         });
       }
     }
@@ -119,7 +108,7 @@ export class TestChamber implements LabEnvironment {
         kind: "box",
         size: new Vector3(0.9, 0.45, 0.9),
         position: new Vector3(5.5, 0.225 + i * 0.455, -9.5),
-        colorIndex: i % 2 === 0 ? 4 : 1,
+        material: i % 2 === 0 ? "concrete" : "plastic",
       });
     }
     // Spheres resting at the top of the inclined plane, held by nothing: they roll on start
@@ -133,20 +122,19 @@ export class TestChamber implements LabEnvironment {
           r.centerY - along * Math.sin(r.angle) + 0.15 + 0.4,
           r.z + along * Math.cos(r.angle),
         ),
-        colorIndex: i === 1 ? 1 : 3,
+        material: (["steel", "rubber", "elastic"] as const)[i],
       });
     }
     // Loose props
     for (let i = 0; i < 4; i++) {
-      factory.spawn({ kind: "cylinder", position: new Vector3(-4.5 + i * 0.9, 0.41, 2.5), colorIndex: i });
+      factory.spawn({ kind: "cylinder", position: new Vector3(-4.5 + i * 0.9, 0.41, 2.5), material: (["glass", "ice", "plastic", "steel"] as const)[i] });
     }
   }
 
   private buildWallDetail({ scene, materials: m }: EnvironmentContext): void {
     // Vertical ribs: one source mesh, GPU instanced around the perimeter (visual only)
-    const rib = CreateBox("wall-rib", { width: 0.35, height: H, depth: 0.25 }, scene);
+    const rib = this.instanceSource(CreateBox("wall-rib", { width: 0.35, height: H, depth: 0.25 }, scene));
     rib.material = m.structure;
-    rib.isVisible = false;
     let n = 0;
     const place = (x: number, z: number, yaw: number) => {
       const inst = rib.createInstance(`wall-rib-${n++}`);
@@ -174,9 +162,8 @@ export class TestChamber implements LabEnvironment {
   }
 
   private buildCeilingLights({ scene, materials: m }: EnvironmentContext): void {
-    const panel = CreateBox("ceiling-light", { width: 5, height: 0.08, depth: 0.9 }, scene);
+    const panel = this.instanceSource(CreateBox("ceiling-light", { width: 5, height: 0.08, depth: 0.9 }, scene));
     panel.material = m.lightPanel;
-    panel.isVisible = false;
     let n = 0;
     for (const x of [-10, 0, 10]) {
       for (let z = -18; z <= 18; z += 9) {
@@ -222,26 +209,5 @@ export class TestChamber implements LabEnvironment {
     this.block("deck-landing", new Vector3(3.2, 0.4, landingDepth), new Vector3(rampX, d.top - 0.2, landingZ0 + landingDepth / 2), m.deck, {
       castShadow: true,
     });
-  }
-
-  private block(name: string, size: Vector3, position: Vector3, material: Material, opts: BlockOptions = {}): Mesh {
-    const mesh = CreateBox(name, { width: size.x, height: size.y, depth: size.z }, this.scene);
-    mesh.position.copyFrom(position);
-    mesh.rotationQuaternion = Quaternion.RotationAxis(Vector3.Right(), opts.rotationX ?? 0);
-    mesh.material = material;
-    mesh.receiveShadows = opts.receiveShadow ?? true;
-    if (opts.collider ?? true) {
-      new PhysicsAggregate(mesh, PhysicsShapeType.BOX, { mass: 0, friction: opts.friction ?? 0.6, restitution: 0.1 }, this.scene);
-    }
-    if (opts.castShadow) this.shadowCasters.push(mesh);
-    this.finishStatic(mesh);
-    return mesh;
-  }
-
-  private finishStatic(mesh: AbstractMesh): void {
-    mesh.isPickable = false;
-    mesh.computeWorldMatrix(true);
-    mesh.freezeWorldMatrix();
-    this.staticMeshes.push(mesh);
   }
 }

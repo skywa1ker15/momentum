@@ -16,15 +16,19 @@ export class GrabTool {
   holdDistance: number = CONFIG.interaction.holdDistance;
 
   private readonly holdPoint = new Vector3();
+  /** Angular velocity requested for the held object this step (rad/s), or null to damp its spin. */
+  private spin: Vector3 | null = null;
 
   constructor(
     private readonly world: PhysicsWorld,
     private readonly factory: ObjectFactory,
   ) {
     world.onBeforeStep.add(() => this.drive());
-    factory.onRemoved.push((o) => {
+    const drop = (o: SandboxObject) => {
       if (this.held === o) this.held = null;
-    });
+    };
+    factory.onRemoved.push(drop);
+    factory.onRebuilt.push(drop);
   }
 
   /** Object under the crosshair within reach, if any. */
@@ -54,6 +58,11 @@ export class GrabTool {
     this.holdDistance = Math.min(c.holdDistanceMax, Math.max(c.holdDistanceMin, this.holdDistance - steps * 0.35));
   }
 
+  /** Turns the held object: the engine is asked for this angular velocity (world space, rad/s) on the next step. */
+  rotate(angularVelocity: Vector3): void {
+    if (this.held) this.spin = angularVelocity.clone();
+  }
+
   /** Call every frame while holding so the hold point follows the view. */
   setHoldPoint(eye: Vector3, dir: Vector3): void {
     eye.addToRef(dir.scale(this.holdDistance), this.holdPoint);
@@ -78,6 +87,7 @@ export class GrabTool {
     const speed = vel.length();
     if (speed > c.holdMaxSpeed) vel.scaleInPlace(c.holdMaxSpeed / speed);
     obj.body.setLinearVelocity(vel);
-    obj.body.setAngularVelocity(obj.body.getAngularVelocity().scale(0.8));
+    obj.body.setAngularVelocity(this.spin ?? obj.body.getAngularVelocity().scale(0.8));
+    this.spin = null;
   }
 }

@@ -22,11 +22,13 @@ const ICONS: Record<PrimitiveKind, string> = {
 
 const CONTROLS: Array<[string, Array<[string, string]>]> = [
   ["Movement", [["W A S D", "Move"], ["Mouse", "Look"], ["Shift", "Sprint"], ["Space", "Jump"]]],
-  ["Objects", [["1 2 3", "Choose shape"], ["F", "Spawn chosen shape"], ["E", "Select / deselect for inspection"], ["C", "Duplicate selected or targeted"], ["X", "Delete targeted or held"]]],
-  ["Hand tool", [["Hold LMB", "Grab and carry"], ["Scroll", "Push / pull held object"], ["RMB", "Throw held / push target"]]],
+  ["Objects", [["1 2 3", "Choose shape"], ["M N", "Next / previous material"], ["F", "Spawn chosen shape"], ["E", "Select / deselect for inspection"], ["C", "Duplicate selected or targeted"], ["X", "Delete targeted or held"]]],
+  ["Hand tool", [["Hold LMB", "Grab and carry"], ["Scroll", "Push / pull held object"], ["Hold T", "Turn held object with the mouse"], ["RMB", "Throw held / push target"]]],
   ["Force tool", [["Hold LMB", "Apply continuous force at the point aimed at"], ["RMB", "Strike with an impulse"], ["Scroll", "Change force magnitude"]]],
-  ["Simulation", [["P", "Pause / resume"], ["[  ]", "Slower / faster"], ["R", "Reset experiment"]]],
-  ["Interface", [["Q", "Switch tool"], ["Tab", "Edit mode: free the mouse to edit properties"], ["H", "Toggle this guide"], ["F2", "Cycle graphics quality"], ["Esc", "Release mouse"]]],
+  ["Field tool", [["LMB", "Place attractor, repulsor or gravity zone"], ["RMB", "Remove the field aimed at"], ["Scroll", "Change field type"], ["V", "Change field strength"]]],
+  ["Link tool", [["LMB LMB", "Join an object to another object or to the room"], ["RMB", "Remove joints on target / cancel"], ["Scroll", "Weld, hinge, ball or motor"]]],
+  ["Simulation", [["P", "Pause / resume"], ["[  ]", "Slower / faster"], ["R", "Reset experiment"], ["F4", "Next environment"]]],
+  ["Interface", [["Q", "Next tool"], ["Tab", "Edit mode: free the mouse to edit properties"], ["H", "Toggle this guide"], ["F2", "Cycle graphics quality"], ["Esc", "Release mouse"]]],
 ];
 
 export type HudMode = "menu" | "play" | "edit";
@@ -51,18 +53,21 @@ export class Hud {
   private readonly simPill: HTMLElement;
   private readonly toastEl: HTMLElement;
   private readonly toolChip: HTMLElement;
+  private readonly materialChip: HTMLElement;
+  private readonly brandSub: HTMLElement;
   private readonly editBanner: HTMLElement;
   private readonly stat: Record<string, HTMLElement> = {};
   private readonly slots = new Map<PrimitiveKind, HTMLElement>();
   private toastTimer = 0;
   private lastStatsAt = 0;
 
-  constructor(parent: HTMLElement, environmentName: string, kinds: readonly PrimitiveKind[]) {
+  constructor(parent: HTMLElement, environments: ReadonlyArray<{ id: string; name: string }>, kinds: readonly PrimitiveKind[]) {
     this.root = el("div", "hud");
     parent.appendChild(this.root);
 
     const brand = el("div", "panel brand");
-    brand.append(el("div", "brand-mark", "MOMENTUM"), el("div", "brand-sub", environmentName));
+    this.brandSub = el("div", "brand-sub", "");
+    brand.append(el("div", "brand-mark", "MOMENTUM"), this.brandSub);
     this.root.appendChild(brand);
 
     this.simPill = el("div", "panel sim-pill");
@@ -88,12 +93,13 @@ export class Hud {
       this.slots.set(kind, slot);
       hotbar.appendChild(slot);
     });
+    this.materialChip = el("div", "material-chip");
     this.toolChip = el("div", "tool-chip");
-    hotbar.append(el("div", "hotbar-divider"), this.toolChip);
-    hotbar.appendChild(el("div", "hotbar-hint", "<kbd>F</kbd> spawn &nbsp; <kbd>H</kbd> controls"));
+    hotbar.append(this.materialChip, el("div", "hotbar-divider"), this.toolChip);
+    hotbar.appendChild(el("div", "hotbar-hint", "<kbd>H</kbd> controls"));
     this.root.appendChild(hotbar);
 
-    this.inspector = new Inspector(this.root);
+    this.inspector = new Inspector(this.root, environments);
     this.editBanner = el("div", "panel edit-banner", "Edit mode &nbsp;·&nbsp; click the viewport or press <kbd>Tab</kbd> to return");
     this.root.appendChild(this.editBanner);
 
@@ -123,7 +129,7 @@ export class Hud {
     card.append(
       el("div", "start-eyebrow", "Experimental physics facility"),
       el("h1", undefined, "MOMENTUM"),
-      el("p", undefined, "A sandbox laboratory. Spawn, carry, throw and push rigid bodies simulated by the Havok engine, then inspect and edit their physical properties."),
+      el("p", undefined, "A sandbox laboratory. Spawn objects in real materials, bend gravity with fields, join parts with hinges and motors, and inspect every body simulated by the Havok engine."),
     );
     const enter = el("button", "enter-button", "Enter laboratory");
     enter.type = "button";
@@ -138,6 +144,17 @@ export class Hud {
     this.root.classList.toggle("in-play", mode === "play");
     this.root.classList.toggle("edit-mode", mode === "edit");
     this.inspector.setEditable(mode === "edit");
+  }
+
+  setEnvironment(id: string, name: string): void {
+    this.brandSub.textContent = name;
+    this.inspector.setEnvironment(id);
+  }
+
+  /** Material that new objects are spawned with. */
+  setMaterial(name: string, rgb: readonly [number, number, number], density: number): void {
+    const color = `rgb(${rgb.map((c) => Math.round(c * 255)).join(",")})`;
+    this.materialChip.innerHTML = `<kbd>M</kbd><span class="chip-swatch" style="background:${color}"></span><span class="tool-name">${name}</span><span class="chip-density">${density} kg/m³</span>`;
   }
 
   /** `detail` is the tool's current setting, e.g. the force magnitude. */

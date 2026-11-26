@@ -1,6 +1,7 @@
 import { CONFIG } from "../core/config";
 import { PROP_LIMITS, type PhysicalProps, type SandboxObject } from "../objects/ObjectFactory";
 import type { ObjectState } from "../objects/ObjectState";
+import { MATERIALS, MATERIAL_ORDER, type MaterialId } from "../materials/Materials";
 import { fixed, mass as formatMass, si } from "./format";
 
 type NumericProp = Exclude<keyof PhysicalProps, "isStatic">;
@@ -32,6 +33,12 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   return e;
 }
 
+export interface JointSummary {
+  count: number;
+  /** Target speed of the object's first motor joint (rad/s), or null when it has none. */
+  motorSpeed: number | null;
+}
+
 export interface InspectorImpacts {
   last: number;
   peak: number;
@@ -48,6 +55,10 @@ export class Inspector {
   onDuplicate: (() => void) | null = null;
   onDelete: (() => void) | null = null;
   onDeselect: (() => void) | null = null;
+  onMaterialChange: ((id: MaterialId) => void) | null = null;
+  onMotorSpeed: ((radPerSec: number) => void) | null = null;
+  onRemoveJoints: (() => void) | null = null;
+  onEnvironment: ((id: string) => void) | null = null;
 
   readonly root: HTMLElement;
   private readonly title: HTMLElement;
@@ -58,9 +69,17 @@ export class Inspector {
   private readonly staticToggle: HTMLInputElement;
   private readonly gravityInput: HTMLInputElement;
   private readonly gravityValue: HTMLElement;
+  private readonly materialInfo: HTMLElement;
+  private readonly swatches = new Map<MaterialId, HTMLButtonElement>();
+  private readonly jointRow: HTMLElement;
+  private readonly jointCount: HTMLElement;
+  private readonly motorRow: HTMLElement;
+  private readonly motorInput: HTMLInputElement;
+  private readonly motorValue: HTMLElement;
+  private readonly envButtons = new Map<string, HTMLButtonElement>();
   private lastLiveAt = 0;
 
-  constructor(parent: HTMLElement) {
+  constructor(parent: HTMLElement, environments: ReadonlyArray<{ id: string; name: string }>) {
     this.root = el("div", "panel inspector");
     parent.appendChild(this.root);
 
@@ -100,6 +119,22 @@ export class Inspector {
 
     // Property editors
     const editors = el("div", "editors");
+    editors.appendChild(el("div", "section-label", "Material"));
+    this.materialInfo = el("div", "material-info");
+    editors.appendChild(this.materialInfo);
+    const swatchRow = el("div", "swatch-row");
+    for (const id of MATERIAL_ORDER) {
+      const def = MATERIALS[id];
+      const b = el("button", "swatch");
+      b.type = "button";
+      b.title = def.name;
+      b.setAttribute("aria-label", def.name);
+      b.style.setProperty("--swatch", `rgb(${def.look.color.map((c) => Math.round(c * 255)).join(",")})`);
+      b.addEventListener("click", () => this.onMaterialChange?.(id));
+      swatchRow.appendChild(b);
+      this.swatches.set(id, b);
+    }
+    editors.appendChild(swatchRow);
     editors.appendChild(el("div", "section-label", "Properties"));
     for (const spec of SLIDERS) {
       const row = el("label", "slider-row");
@@ -132,6 +167,31 @@ export class Inspector {
       this.button("Deselect", () => this.onDeselect?.()),
     );
     editors.appendChild(actions);
+
+    // Joints
+    this.jointRow = el("div", "joint-section");
+    this.jointRow.appendChild(el("div", "section-label", "Joints"));
+    const jr = el("div", "stat-row");
+    this.jointCount = el("span", "stat-value", "0");
+    jr.append(el("span", "stat-label", "Attached"), this.jointCount);
+    this.jointRow.appendChild(jr);
+    this.motorRow = el("label", "slider-row");
+    this.motorValue = el("span", "stat-value", "");
+    this.motorInput = el("input");
+    this.motorInput.type = "range";
+    this.motorInput.min = String(-CONFIG.joints.maxMotorSpeed);
+    this.motorInput.max = String(CONFIG.joints.maxMotorSpeed);
+    this.motorInput.step = "0.5";
+    this.motorInput.addEventListener("input", () => {
+      this.motorValue.textContent = `${fixed(Number(this.motorInput.value), 1)} rad/s`;
+      this.onMotorSpeed?.(Number(this.motorInput.value));
+    });
+    this.motorRow.append(el("span", "stat-label", "Motor speed"), this.motorInput, this.motorValue);
+    this.jointRow.appendChild(this.motorRow);
+    const jActions = el("div", "inspector-actions");
+    jActions.appendChild(this.button("Remove joints", () => this.onRemoveJoints?.()));
+    this.jointRow.appendChild(jActions);
+    editors.appendChild(this.jointRow);
     this.body.appendChild(editors);
 
     // World
@@ -150,6 +210,14 @@ export class Inspector {
     const presets = el("div", "inspector-actions");
     for (const [name, g] of CONFIG.gravity.presets) presets.appendChild(this.button(name, () => this.onGravityChange?.(g)));
     world.appendChild(presets);
+    world.appendChild(el("div", "section-label", "Environment"));
+    const envs = el("div", "inspector-actions");
+    for (const env of environments) {
+      const b = this.button(env.name, () => this.onEnvironment?.(env.id));
+      envs.appendChild(b);
+      this.envButtons.set(env.id, b);
+    }
+    world.appendChild(envs);
     this.root.appendChild(world);
 
     this.root.appendChild(el("div", "inspector-hint")).innerHTML = "<kbd>Tab</kbd> edit mode";
@@ -157,10 +225,29 @@ export class Inspector {
     this.setGravity(CONFIG.physics.gravity);
   }
 
-  setObject(obj: SandboxObject | null): void {
+  setObject(obj: SandboxObject | null, joints: JointSummary = { count: 0, motorSpeed: null }): void {
     this.root.classList.toggle("has-object", obj !== null);
     this.title.textContent = obj ? `${obj.kind} #${obj.id}` : "";
-    if (obj) this.setProps(obj.props);
+    if (!obj) return;
+    this.setProps(obj.props);
+    const def = MATERIALS[obj.materialId];
+    this.materialInfo.innerHTML = `<span class="material-name">${def.name}</span><span class="stat-value">${def.density} kg/m³ · hardness ${def.hardness} · durability ${def.durability}</span>`;
+    for (const [id, b] of this.swatches) b.classList.toggle("active", id === obj.materialId);
+    this.setJoints(joints);
+  }
+
+  setJoints(joints: JointSummary): void {
+    this.jointRow.classList.toggle("hidden", joints.count === 0);
+    this.jointCount.textContent = String(joints.count);
+    this.motorRow.classList.toggle("hidden", joints.motorSpeed === null);
+    if (joints.motorSpeed !== null) {
+      this.motorInput.value = String(joints.motorSpeed);
+      this.motorValue.textContent = `${fixed(joints.motorSpeed, 1)} rad/s`;
+    }
+  }
+
+  setEnvironment(id: string): void {
+    for (const [envId, b] of this.envButtons) b.classList.toggle("active", envId === id);
   }
 
   /** Sync editors to the given properties (after selection, clamping or external changes). */
@@ -192,7 +279,7 @@ export class Inspector {
     const L = this.live;
     L.speed.textContent = si(s.speed, "m/s");
     L.velocity.textContent = `${fixed(s.velocity.x, 1)}, ${fixed(s.velocity.y, 1)}, ${fixed(s.velocity.z, 1)}`;
-    L.momentum.textContent = si(s.momentum, "kg·m/s");
+    L.momentum.textContent = si(s.momentum, "N·s"); // 1 N·s = 1 kg·m/s
     L.energy.textContent = si(s.kineticLinear + s.kineticRotational, "J");
     L.rotEnergy.textContent = si(s.kineticRotational, "J");
     L.angular.textContent = si(s.angularSpeed, "rad/s");

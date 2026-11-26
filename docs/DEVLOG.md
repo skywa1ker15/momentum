@@ -1,5 +1,35 @@
 # Development log
 
+## 2026-11-26 - Phase 3: Advanced interactions
+
+### Implemented
+- **Materials.** Steel, wood, concrete, glass, rubber, plastic, ice, elastic, with real densities (kg/m^3) and representative friction and restitution, plus hardness and durability. M / N choose the material for new objects; the inspector shows and changes the material of the selected object (mass follows density). Starting props now use mixed materials.
+- **Gravity fields.** Attractors and repulsors (inverse-square, a = mu / r^2, capped below 0.75 m, limited reach) and box-shaped gravity zones that replace world gravity inside them. Forces go through the engine each step. Field tool: place, remove, change type and strength; at most 8 fields.
+- **Joints.** Weld, hinge, ball and motor, between two objects or between an object and the room. Link tool: click the first object, then the second body; the joint sits at the second point clicked and hinge / motor axes follow the surface normal there. Motor speed (-20 to 20 rad/s) is set in the inspector. Joints survive a material change. At most 64 joints.
+- **Turning held objects.** Hold T while carrying to rotate with the mouse.
+- **Gravity Laboratory.** Second environment: tall chamber with a central emitter (attractor) that lifts nearby objects, an upward-gravity column, and an observation gallery. F4 or the inspector switches environment; everything from the old environment is disposed.
+- HUD: material chip, four-tool chip with per-tool detail, environment name and selector, expanded control guide.
+
+### Tested
+- `npm test`: 48 tests passing (20 new), against real Havok. New checks: every material writes density x volume, friction and restitution to the engine; ice slides more than 3x further than rubber; elastic rebounds more than 2.5x higher than concrete; in-place material change keeps identity, transform, velocity and body count; attractor acceleration matches mu / r^2 within 10 %; repulsor pushes away; no effect outside the radius; fields wake sleeping bodies; a zone gives +g inside and -g outside; field limit and ray picking; weld keeps distance and orientation; hinge keeps the pivot distance and stays in its plane; ball joint swings in both directions; motor reaches its target speed and follows a change; joints survive a material change and die with their object; both environments build, simulate and dispose with zero bodies and no leftover meshes; Gravity Lab emitter lifts at least 8 of 10 nearby props, the column lifts all four balls, distant crates stay put; player walks up the gallery ramp; field tool and link tool behaviour; held-object rotation rate.
+- Production build in headless Chrome with real input: material cycling, placing three field types, removing a field by aiming, hinge between two boxes, motor to the floor, selecting, edit mode, steel swatch (mass 518 kg to 1696 kg, joints kept), switching to the Gravity Laboratory and back three times (body count returns to its baseline of 45). Phase 1 and 2 scenarios rerun. No console errors or warnings.
+
+### Bugs found and fixed during the phase
+- Gravity Lab emitter was too weak and too high to lift the props (caught by the test); repositioned and strengthened.
+- Changing material silently dropped the object's joints; joints are now recreated.
+- Momentum displayed as "kkg m/s"; now shown in N s.
+- Joint and field markers bloomed into large glowing blobs; they now use colours below the bloom threshold.
+
+### Known limitations
+- Durability and hardness are displayed but have no effect until the destruction system (Phase 4).
+- Zone gravity is axis-aligned and fixed at 9.81 m/s^2 when placed with the tool; field positions cannot be moved after placing (remove and place again).
+- Hinge / motor axis comes from the surface normal at the second click; there is no manual axis control.
+- Motor torque is capped at 20 kN m; very heavy assemblies will not reach the target speed.
+- Turning held objects (T) was verified by the headless test only: the headless browser does not report mouse movement under pointer lock.
+- The player is not affected by fields or zones.
+- Deferred: multi-select, torque tool, slider and spring joints, snapping, non-vertical world gravity.
+- WebGPU and performance on the target laptop remain unverified (see Phase 1 entry).
+
 ## 2026-11-25 - Phase 2: Physics systems
 
 ### Implemented

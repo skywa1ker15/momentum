@@ -7,8 +7,14 @@ import { MaterialLibrary } from "../render/MaterialLibrary";
 import { Lighting } from "../render/Lighting";
 import { RenderPipeline } from "../render/RenderPipeline";
 import { PhysicsWorld } from "../physics/PhysicsWorld";
-import { TestChamber } from "../environments/TestChamber";
+import { ENVIRONMENTS } from "../environments";
 import type { LabEnvironment } from "../environments/Environment";
+import { GravityFields } from "../fields/GravityFields";
+import { JointManager, type Joint } from "../construction/Joints";
+import { FieldTool } from "../tools/FieldTool";
+import { LinkTool } from "../tools/LinkTool";
+import { FieldVisuals } from "../render/FieldVisuals";
+import { MATERIALS, MATERIAL_ORDER, DEFAULT_MATERIAL, type MaterialId } from "../materials/Materials";
 import { ObjectFactory, PRIMITIVE_KINDS, type PrimitiveKind, type SandboxObject } from "../objects/ObjectFactory";
 import { PlayerController, type MoveIntent } from "../player/PlayerController";
 import { InputManager } from "../input/InputManager";
@@ -21,7 +27,8 @@ import { VectorOverlay } from "../render/VectorOverlay";
 import { Hud, type HudMode } from "../ui/Hud";
 import { mass as formatMass, si } from "../ui/format";
 
-export type ToolId = "hand" | "force";
+export type ToolId = "hand" | "force" | "field" | "link";
+const TOOLS: readonly ToolId[] = ["hand", "force", "field", "link"];
 
 const QUALITY_KEY = "momentum.quality";
 const IDLE: MoveIntent = { forward: 0, strafe: 0, sprint: false, jump: false };
@@ -45,7 +52,12 @@ export class App {
   readonly grab: GrabTool;
   readonly force: ForceTool;
   readonly selection: Selection;
-  readonly environment: LabEnvironment;
+  readonly fields: GravityFields;
+  readonly joints: JointManager;
+  readonly fieldTool: FieldTool;
+  readonly linkTool: LinkTool;
+  environment: LabEnvironment;
+  selectedMaterial: MaterialId = DEFAULT_MATERIAL;
   tool: ToolId = "hand";
   mode: HudMode = "menu";
   quality: QualityLevel = loadQuality();
@@ -57,6 +69,8 @@ export class App {
   private readonly lighting: Lighting;
   private readonly pipeline: RenderPipeline;
   private readonly overlay: VectorOverlay;
+  private readonly fieldVisuals: FieldVisuals;
+  private readonly materials: MaterialLibrary;
   private pendingEdit = false;
   private frame = 0;
   private baseFov = 1.12;
@@ -73,9 +87,10 @@ export class App {
     this.scene.autoClear = true;
 
     this.world = new PhysicsWorld(this.scene, havok);
-    const materials = new MaterialLibrary(this.scene);
-    this.environment = new TestChamber();
+    const materials = (this.materials = new MaterialLibrary(this.scene));
+    this.environment = ENVIRONMENTS[0].create();
     this.environment.build({ scene: this.scene, materials });
+    this.scene.fogColor = this.environment.lightRig.fogColor;
 
     this.camera = new FreeCamera("player-camera", this.environment.spawnPoint.clone(), this.scene);
     this.camera.inputs.clear();
@@ -90,17 +105,28 @@ export class App {
     this.factory = new ObjectFactory(this.scene, materials);
     this.factory.onSpawned.push((o) => this.lighting.addCaster(o.mesh));
     this.factory.onRemoved.push((o) => this.lighting.removeCaster(o.mesh));
-    this.environment.populate(this.factory);
+    this.factory.onRebuilt.push((o, oldMesh) => {
+      this.lighting.removeCaster(oldMesh);
+      this.lighting.addCaster(o.mesh);
+    });
+    this.fields = new GravityFields(this.world, this.factory);
+    this.joints = new JointManager(this.scene, this.factory);
+    this.fieldVisuals = new FieldVisuals(this.scene, this.fields, this.joints, materials);
+    this.environment.populate(this.factory, this.fields);
 
     this.player = new PlayerController(this.scene, this.environment.spawnPoint, this.environment.spawnYaw);
     this.grab = new GrabTool(this.world, this.factory);
     this.force = new ForceTool(this.world, this.factory);
     this.selection = new Selection(this.factory);
+    this.fieldTool = new FieldTool(this.world, this.fields);
+    this.linkTool = new LinkTool(this.world, this.factory, this.joints);
     this.overlay = new VectorOverlay(this.scene);
 
     this.input = new InputManager(canvas);
-    this.hud = new Hud(uiRoot, this.environment.name, PRIMITIVE_KINDS);
+    this.hud = new Hud(uiRoot, ENVIRONMENTS, PRIMITIVE_KINDS);
+    this.hud.setEnvironment(this.environment.id, this.environment.name);
     this.hud.setSelected(this.selectedKind);
+    this.selectMaterial(this.selectedMaterial);
     this.hud.onEnter = () => this.input.requestLock();
     this.input.onLockChange = (locked) => {
       this.mode = locked ? "play" : this.pendingEdit ? "edit" : "menu";
@@ -114,7 +140,23 @@ export class App {
     this.hud.setMode(this.mode);
 
     const inspector = this.hud.inspector;
-    this.selection.onChange = (obj) => inspector.setObject(obj);
+    this.selection.onChange = (obj) => inspector.setObject(obj, obj ? this.jointSummary(obj) : undefined);
+    this.joints.onChange.push(() => {
+      const obj = this.selection.current;
+      if (obj) inspector.setJoints(this.jointSummary(obj));
+    });
+    inspector.onMaterialChange = (id) => {
+      const obj = this.selection.current;
+      if (obj) this.factory.setMaterial(obj, id);
+    };
+    inspector.onMotorSpeed = (speed) => {
+      const obj = this.selection.current;
+      if (obj) for (const j of this.motorsOf(obj)) this.joints.setMotorSpeed(j, speed);
+    };
+    inspector.onRemoveJoints = () => {
+      if (this.selection.current) this.joints.removeFor(this.selection.current);
+    };
+    inspector.onEnvironment = (id) => this.loadEnvironment(id);
     inspector.onPropChange = (change) => {
       const obj = this.selection.current;
       if (obj) this.factory.setProps(obj, change);
@@ -144,7 +186,7 @@ export class App {
     const max = CONFIG.interaction.spawnDistance;
     const hit = this.world.raycast(eye, eye.add(dir.scale(max + 0.6)));
     const dist = hit ? Math.max(0.9, hit.distance - 0.6) : max;
-    const obj = this.factory.spawn({ kind: this.selectedKind, position: eye.add(dir.scale(dist)) });
+    const obj = this.factory.spawn({ kind: this.selectedKind, material: this.selectedMaterial, position: eye.add(dir.scale(dist)) });
     if (!obj) this.hud.toast(`Object limit reached (${CONFIG.limits.maxObjects})`);
     return obj;
   }
@@ -152,6 +194,38 @@ export class App {
   selectKind(kind: PrimitiveKind): void {
     this.selectedKind = kind;
     this.hud.setSelected(kind);
+  }
+
+  selectMaterial(id: MaterialId): void {
+    this.selectedMaterial = id;
+    const def = MATERIALS[id];
+    this.hud.setMaterial(def.name, def.look.color, def.density);
+  }
+
+  cycleMaterial(direction: -1 | 1): void {
+    const n = MATERIAL_ORDER.length;
+    this.selectMaterial(MATERIAL_ORDER[(MATERIAL_ORDER.indexOf(this.selectedMaterial) + direction + n) % n]);
+  }
+
+  /** Tears down the current environment and experiment and loads another one. */
+  loadEnvironment(id: string): void {
+    const entry = ENVIRONMENTS.find((e) => e.id === id);
+    if (!entry || id === this.environment.id) return;
+    this.clearExperiment();
+    this.environment.dispose();
+    this.environment = entry.create();
+    this.environment.build({ scene: this.scene, materials: this.materials });
+    this.scene.fogColor = this.environment.lightRig.fogColor;
+    this.lighting.applyEnvironment(this.environment);
+    this.pipeline.bakeReflections(this.environment);
+    this.startExperiment();
+    this.hud.setEnvironment(this.environment.id, this.environment.name);
+    this.hud.toast(this.environment.name);
+  }
+
+  nextEnvironment(): void {
+    const i = ENVIRONMENTS.findIndex((e) => e.id === this.environment.id);
+    this.loadEnvironment(ENVIRONMENTS[(i + 1) % ENVIRONMENTS.length].id);
   }
 
   togglePause(): void {
@@ -191,7 +265,22 @@ export class App {
     if (tool === this.tool) return;
     this.grab.release();
     this.force.end();
+    this.linkTool.cancel();
     this.tool = tool;
+  }
+
+  /** Short description of the active tool's current setting for the HUD. */
+  private toolDetail(): string {
+    switch (this.tool) {
+      case "force":
+        return `${si(this.force.force, "N")} · ${si(this.force.impulse, "N·s")}`;
+      case "field":
+        return this.fieldTool.kind === "zone" ? "zone · gravity along view" : `${this.fieldTool.kind} · μ ${this.fieldTool.strength} m³/s²`;
+      case "link":
+        return this.linkTool.pending ? `${this.linkTool.kind} · pick second body` : this.linkTool.kind;
+      default:
+        return this.grab.held ? "hold T to turn" : "";
+    }
   }
 
   /** Vertical world gravity in m/s^2 (negative is down). Sleeping bodies are woken so they respond. */
@@ -210,15 +299,38 @@ export class App {
   }
 
   resetExperiment(): void {
+    this.clearExperiment();
+    this.startExperiment();
+    this.hud.toast("Experiment reset");
+  }
+
+  /** Removes every object, joint and field and releases all tools. */
+  private clearExperiment(): void {
     this.grab.release();
     this.force.end();
-    this.setGravity(CONFIG.physics.gravity);
+    this.linkTool.cancel();
+    this.selection.select(null);
+    this.joints.clear();
+    this.fields.clear();
     this.factory.clear();
-    this.environment.populate(this.factory);
+  }
+
+  /** Populates the current environment and puts the player and world back to their starting state. */
+  private startExperiment(): void {
+    this.setGravity(this.environment.gravityY);
+    this.environment.populate(this.factory, this.fields);
     this.player.teleport(this.environment.spawnPoint, this.environment.spawnYaw);
     this.world.paused = false;
     this.world.timeScale = 1;
-    this.hud.toast("Experiment reset");
+  }
+
+  private motorsOf(obj: SandboxObject): Joint[] {
+    return this.joints.jointsOf(obj).filter((j) => j.kind === "motor");
+  }
+
+  private jointSummary(obj: SandboxObject) {
+    const motors = this.motorsOf(obj);
+    return { count: this.joints.jointsOf(obj).length, motorSpeed: motors.length ? motors[0].motorSpeed : null };
   }
 
   cycleQuality(): void {
@@ -254,7 +366,14 @@ export class App {
 
     let intent = IDLE;
     if (locked) {
-      this.player.look(input.lookX, input.lookY);
+      if (this.grab.held && input.isDown("KeyT")) {
+        // Turn the held object instead of the view: mouse X about the vertical, mouse Y about the view's right axis.
+        const right = new Vector3(Math.cos(this.player.yaw), 0, -Math.sin(this.player.yaw));
+        const k = CONFIG.interaction.turnSpeed / Math.max(dt, 1 / 240);
+        this.grab.rotate(Vector3.Up().scale(input.lookX * k).addInPlace(right.scale(input.lookY * k)));
+      } else {
+        this.player.look(input.lookX, input.lookY);
+      }
       intent = {
         forward: input.axis("KeyS", "KeyW"),
         strafe: input.axis("KeyA", "KeyD"),
@@ -279,7 +398,8 @@ export class App {
     const active = this.grab.held ?? this.force.target;
     const target = active ?? (locked ? this.pickObject() : null);
     this.hud.setTarget(target ? `${target.kind} · ${formatMass(target.props.mass)}${target.props.isStatic ? " · static" : ""}` : null, active !== null);
-    this.hud.setTool(this.tool, this.tool === "force" ? `${si(this.force.force, "N")} · ${si(this.force.impulse, "N·s")}` : "");
+    this.hud.setTool(this.tool, this.toolDetail());
+    this.fieldVisuals.update();
 
     const selected = this.selection.current;
     if (selected) {
@@ -319,8 +439,28 @@ export class App {
       if (input.wasPressed(`Digit${i + 1}`)) this.selectKind(kind);
     });
     if (input.wasPressed("KeyF")) this.spawnSelected();
-    if (input.wasPressed("KeyQ")) this.setTool(this.tool === "hand" ? "force" : "hand");
-    if (this.tool === "hand") {
+    if (input.wasPressed("KeyQ")) this.setTool(TOOLS[(TOOLS.indexOf(this.tool) + 1) % TOOLS.length]);
+    if (input.wasPressed("KeyM")) this.cycleMaterial(1);
+    if (input.wasPressed("KeyN")) this.cycleMaterial(-1);
+    if (input.wasPressed("F4")) this.nextEnvironment();
+    if (this.tool === "field") {
+      if (input.wasPressed("Mouse0") && !this.fieldTool.place(eye, dir)) this.hud.toast(`Field limit reached (${CONFIG.fields.maxFields})`);
+      if (input.wasPressed("Mouse2")) this.fieldTool.removeAimed(eye, dir);
+      if (input.wheel !== 0) this.fieldTool.cycleKind(input.wheel);
+      if (input.wasPressed("KeyV")) this.fieldTool.cycleStrength();
+    } else if (this.tool === "link") {
+      if (input.wasPressed("Mouse0")) {
+        const r = this.linkTool.click(eye, dir);
+        if (r.status === "joined") this.hud.toast(`${r.joint.kind} joint created`);
+        else if (r.status === "limit") this.hud.toast("Could not create joint");
+        else if (r.status === "none") this.hud.toast("Aim at an object first");
+      }
+      if (input.wasPressed("Mouse2")) {
+        const n = this.linkTool.removeAimed(eye, dir);
+        if (n > 0) this.hud.toast(`Removed ${n} joint${n === 1 ? "" : "s"}`);
+      }
+      if (input.wheel !== 0) this.linkTool.cycleKind(input.wheel);
+    } else if (this.tool === "hand") {
       if (input.wasPressed("Mouse0")) this.grab.tryGrab(eye, dir);
       if (input.wasReleased("Mouse0")) this.grab.release();
       if (input.wasPressed("Mouse2")) this.grab.throwOrPush(eye, dir);

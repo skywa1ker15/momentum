@@ -21,6 +21,13 @@ export class Selection {
     factory.onRemoved.push((o) => {
       if (this.current === o) this.select(null);
     });
+    // The rebuilt object has a new mesh and body; the old ones are already gone.
+    factory.onRebuilt.push((o) => {
+      if (this.current !== o) return;
+      this.current = null;
+      this.observer = null;
+      this.select(o);
+    });
   }
 
   select(obj: SandboxObject | null): void {

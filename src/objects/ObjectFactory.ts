@@ -11,12 +11,10 @@ import type { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody";
 import type { Scene } from "@babylonjs/core/scene";
 import { CONFIG } from "../core/config";
 import type { MaterialLibrary } from "../render/MaterialLibrary";
+import { DEFAULT_MATERIAL, MATERIALS, type MaterialId } from "../materials/Materials";
 
 export type PrimitiveKind = "box" | "sphere" | "cylinder";
 export const PRIMITIVE_KINDS: readonly PrimitiveKind[] = ["box", "sphere", "cylinder"];
-
-/** One generic solid for now. Per-material presets arrive with the material laboratory (Phase 3). */
-const DEFAULT_SOLID = { density: 450, friction: 0.6, restitution: 0.25 };
 
 /** Editable physical properties. Every field maps directly onto a Havok body / shape setting. */
 export interface PhysicalProps {
@@ -61,7 +59,7 @@ export interface SpawnOptions {
   position: Vector3;
   /** Box: edge lengths. Sphere: x = diameter. Cylinder: x = diameter, y = height. */
   size?: Vector3;
-  colorIndex?: number;
+  material?: MaterialId;
   rotation?: Quaternion;
   linearVelocity?: Vector3;
   /** Overrides for the default physical properties. */
@@ -75,7 +73,7 @@ export interface SandboxObject {
   aggregate: PhysicsAggregate;
   body: PhysicsBody;
   size: Vector3;
-  colorIndex: number;
+  materialId: MaterialId;
   /** Last values applied to the engine. Change them only through ObjectFactory.setProps. */
   props: PhysicalProps;
 }
@@ -99,17 +97,18 @@ export function primitiveVolume(kind: PrimitiveKind, size: Vector3): number {
 
 /**
  * Creates and tracks dynamic sandbox objects.
- * Each (shape, colour) pair has one hidden unit-sized source mesh; every object
+ * Each (shape, material) pair has one hidden unit-sized source mesh; every object
  * is a GPU instance of it, scaled to size, with its own Havok body.
  */
 export class ObjectFactory {
   readonly onSpawned: Array<(o: SandboxObject) => void> = [];
   readonly onRemoved: Array<(o: SandboxObject) => void> = [];
+  /** Raised after an object's mesh and body were recreated (material change). Receives the old mesh. */
+  readonly onRebuilt: Array<(o: SandboxObject, oldMesh: InstancedMesh) => void> = [];
 
   private readonly objects = new Map<number, SandboxObject>();
   private readonly sources = new Map<string, Mesh>();
   private nextId = 1;
-  private nextColor = 0;
 
   constructor(
     private readonly scene: Scene,
@@ -132,48 +131,72 @@ export class ObjectFactory {
   spawn(opts: SpawnOptions): SandboxObject | null {
     if (this.atLimit) return null;
     const size = opts.size ?? DEFAULT_SIZE[opts.kind];
-    const colorIndex = (opts.colorIndex ?? this.nextColor++) % this.materials.props.length;
+    const materialId = opts.material ?? DEFAULT_MATERIAL;
     const id = this.nextId++;
-
-    const mesh = this.source(opts.kind, colorIndex).createInstance(`obj-${id}-${opts.kind}`);
-    mesh.scaling.copyFrom(opts.kind === "sphere" ? new Vector3(size.x, size.x, size.x) : opts.kind === "cylinder" ? new Vector3(size.x, size.y, size.x) : size);
-    mesh.position.copyFrom(opts.position);
-    mesh.rotationQuaternion = opts.rotation?.clone() ?? Quaternion.Identity();
-    mesh.metadata = { sandboxId: id };
-
-    const mass = DEFAULT_SOLID.density * primitiveVolume(opts.kind, size);
-    const shape =
-      opts.kind === "box" ? PhysicsShapeType.BOX : opts.kind === "sphere" ? PhysicsShapeType.SPHERE : PhysicsShapeType.CYLINDER;
-    const aggregate = new PhysicsAggregate(
-      mesh,
-      shape,
-      { mass, friction: DEFAULT_SOLID.friction, restitution: DEFAULT_SOLID.restitution },
-      this.scene,
-    );
+    const { mesh, aggregate, props } = this.build(id, opts.kind, size, materialId, opts.position, opts.rotation ?? Quaternion.Identity());
     if (opts.linearVelocity) aggregate.body.setLinearVelocity(opts.linearVelocity);
 
-    const obj: SandboxObject = {
-      id,
-      kind: opts.kind,
-      mesh,
-      aggregate,
-      body: aggregate.body,
-      size: size.clone(),
-      colorIndex,
-      props: {
-        mass,
-        friction: DEFAULT_SOLID.friction,
-        restitution: DEFAULT_SOLID.restitution,
-        linearDamping: aggregate.body.getLinearDamping(),
-        angularDamping: aggregate.body.getAngularDamping(),
-        gravityFactor: 1,
-        isStatic: false,
-      },
-    };
+    const obj: SandboxObject = { id, kind: opts.kind, mesh, aggregate, body: aggregate.body, size: size.clone(), materialId, props };
     if (opts.props) this.setProps(obj, opts.props);
     this.objects.set(id, obj);
     for (const cb of this.onSpawned) cb(obj);
     return obj;
+  }
+
+  /**
+   * Changes an object's material: mass follows the new density, friction and restitution
+   * take the preset values, other properties are kept. The mesh and body are recreated
+   * in place with the same transform and velocities.
+   */
+  setMaterial(obj: SandboxObject, materialId: MaterialId): void {
+    if (obj.materialId === materialId) return;
+    const lin = obj.body.getLinearVelocity();
+    const ang = obj.body.getAngularVelocity();
+    const oldMesh = obj.mesh;
+    const keep = { ...obj.props };
+    const rotation = oldMesh.rotationQuaternion?.clone() ?? Quaternion.Identity();
+    obj.aggregate.dispose();
+    const built = this.build(obj.id, obj.kind, obj.size, materialId, oldMesh.position, rotation);
+    obj.mesh = built.mesh;
+    obj.aggregate = built.aggregate;
+    obj.body = built.aggregate.body;
+    obj.materialId = materialId;
+    obj.props = built.props;
+    this.setProps(obj, {
+      linearDamping: keep.linearDamping,
+      angularDamping: keep.angularDamping,
+      gravityFactor: keep.gravityFactor,
+      isStatic: keep.isStatic,
+    });
+    if (!keep.isStatic) {
+      obj.body.setLinearVelocity(lin);
+      obj.body.setAngularVelocity(ang);
+    }
+    for (const cb of this.onRebuilt) cb(obj, oldMesh);
+    oldMesh.dispose();
+  }
+
+  private build(id: number, kind: PrimitiveKind, size: Vector3, materialId: MaterialId, position: Vector3, rotation: Quaternion) {
+    const def = MATERIALS[materialId];
+    const mesh = this.source(kind, materialId).createInstance(`obj-${id}-${kind}`);
+    mesh.scaling.copyFrom(kind === "sphere" ? new Vector3(size.x, size.x, size.x) : kind === "cylinder" ? new Vector3(size.x, size.y, size.x) : size);
+    mesh.position.copyFrom(position);
+    mesh.rotationQuaternion = rotation.clone();
+    mesh.metadata = { sandboxId: id };
+
+    const mass = def.density * primitiveVolume(kind, size);
+    const shape = kind === "box" ? PhysicsShapeType.BOX : kind === "sphere" ? PhysicsShapeType.SPHERE : PhysicsShapeType.CYLINDER;
+    const aggregate = new PhysicsAggregate(mesh, shape, { mass, friction: def.friction, restitution: def.restitution }, this.scene);
+    const props: PhysicalProps = {
+      mass,
+      friction: def.friction,
+      restitution: def.restitution,
+      linearDamping: aggregate.body.getLinearDamping(),
+      angularDamping: aggregate.body.getAngularDamping(),
+      gravityFactor: 1,
+      isStatic: false,
+    };
+    return { mesh, aggregate, props };
   }
 
   /** Applies property changes to the Havok body / shape. Values are clamped to PROP_LIMITS. */
@@ -212,12 +235,12 @@ export class ObjectFactory {
     this.wake(obj);
   }
 
-  /** Copies an object (shape, size, colour, properties) at an offset. Null at the object limit. */
+  /** Copies an object (shape, size, material, properties) at an offset. Null at the object limit. */
   duplicate(obj: SandboxObject, offset: Vector3): SandboxObject | null {
     return this.spawn({
       kind: obj.kind,
       size: obj.size,
-      colorIndex: obj.colorIndex,
+      material: obj.materialId,
       position: obj.mesh.position.add(offset),
       rotation: obj.mesh.rotationQuaternion ?? undefined,
       props: obj.props,
@@ -262,8 +285,8 @@ export class ObjectFactory {
     return removed;
   }
 
-  private source(kind: PrimitiveKind, colorIndex: number): Mesh {
-    const key = `${kind}:${colorIndex}`;
+  private source(kind: PrimitiveKind, materialId: MaterialId): Mesh {
+    const key = `${kind}:${materialId}`;
     let mesh = this.sources.get(key);
     if (!mesh) {
       const name = `src-${key}`;
@@ -273,7 +296,7 @@ export class ObjectFactory {
           : kind === "sphere"
             ? CreateSphere(name, { diameter: 1, segments: 24 }, this.scene)
             : CreateCylinder(name, { diameter: 1, height: 1, tessellation: 32 }, this.scene);
-      mesh.material = this.materials.props[colorIndex];
+      mesh.material = this.materials.solids[materialId];
       mesh.receiveShadows = true;
       mesh.isVisible = false; // instances still render
       mesh.isPickable = false;

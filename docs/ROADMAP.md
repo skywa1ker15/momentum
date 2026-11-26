@@ -10,12 +10,10 @@ Selection and inspector with live engine readouts (speed, velocity, momentum, ki
 
 Deferred from the original Phase 2 list: multi-select and a dedicated torque tool (off-centre forces already produce torque). Both move to Phase 3 with the construction tools.
 
-## Phase 3 - Advanced interactions
-- Material laboratory: steel, wood, concrete, glass, rubber, plastic, ice, elastic - density, friction, restitution, hardness, durability; mass derived from density and volume.
-- Gravity laboratory: arbitrary gravity direction; local attract / repel fields (inverse-square, clamped); directional gravity zones. (Vertical strength, reverse and zero-g already exist.)
-- Multi-select, torque tool.
-- Construction: precise move / rotate, snap, fixed / hinge / ball / slider / spring constraints, motors on hinges.
-- Second environment: Gravity Laboratory. Environment switching.
+## Phase 3 - Advanced interactions (complete)
+Eight material presets; gravity fields (attractor, repulsor, directional zone) with a placement tool; joints (weld, hinge, ball, motor) with a two-click link tool and motor speed control; turning held objects; second environment (Gravity Laboratory) and environment switching.
+
+Deferred: multi-select, a dedicated torque tool, slider and spring joints, snapping, and arbitrary (non-vertical) world gravity direction. These are picked up in Phase 5 with mechanical machines, except multi-select which moves to Phase 6 (UI).
 
 ## Phase 4 - Destruction
 - Pre-fractured breakable objects (Voronoi-style convex pieces) with structural links between pieces.
@@ -27,10 +25,10 @@ Deferred from the original Phase 2 list: multi-select and a dedicated torque too
 - Explosions: radial impulse on bodies (simulated) plus pressure-wave and flash (visual).
 - Water: particle-based fluid within a bounded budget; clearly labelled simulated vs visual in the UI.
 - Deformation: soft / elastic bodies via constraint lattices; dent-style visual deformation for hard materials.
-- Mechanical machines: gears, pistons, conveyor motors built from Phase 3 constraints.
+- Mechanical machines: slider and spring joints, snapping, torque tool, gears and pistons built on the Phase 3 constraints.
 
 ## Phase 6 - UI and experience
-- Full tool wheel / panels, settings (graphics, controls, sensitivity), environment selector, save / load experiments (JSON, local storage + file export), onboarding, audio.
+- Multi-select. Full tool wheel / panels, settings (graphics, controls, sensitivity), environment selector, save / load experiments (JSON, local storage + file export), onboarding, audio.
 - Construction Zone and Observation environments finished.
 
 ## Phase 7 - Optimisation and release

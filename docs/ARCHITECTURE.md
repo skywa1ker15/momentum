@@ -22,12 +22,21 @@ src/
     Lighting.ts           Key/fill/spot lights, shadow generator
     RenderPipeline.ts     Tone mapping, bloom, FXAA/MSAA, glow, reflection probe, selection box
     VectorOverlay.ts      Velocity / force arrows drawn from engine values
+    FieldVisuals.ts       Markers for fields, zones and joints
   physics/
     PhysicsWorld.ts       Havok world: stepping, pause, time scale, gravity, raycast
     loadHavok.ts          Browser WASM loader
   environments/
-    Environment.ts        LabEnvironment interface
-    TestChamber.ts        Test Chamber 01: static geometry + colliders, starting props
+    Environment.ts        LabEnvironment interface, BaseEnvironment (block helpers, dispose)
+    TestChamber.ts        Test Chamber 01
+    GravityLab.ts         Gravity Laboratory (emitter field, upward column)
+    index.ts              Environment registry
+  materials/
+    Materials.ts          Physical material presets (density, friction, restitution, hardness, durability)
+  fields/
+    GravityFields.ts      Point fields (inverse-square) and gravity zones, applied as engine forces
+  construction/
+    Joints.ts             Weld / hinge / ball / motor joints (Havok 6-DoF constraints)
   objects/
     ObjectFactory.ts      Spawn / remove / duplicate objects, editable PhysicalProps, limits, instancing
     ObjectState.ts        Engine readout: velocity, momentum, kinetic energy (linear + rotational)
@@ -38,6 +47,8 @@ src/
   tools/
     GrabTool.ts           Hand tool: target, grab, carry, throw, push
     ForceTool.ts          Force tool: continuous force / impulse at a point on the body
+    FieldTool.ts          Field tool: place / remove gravity fields
+    LinkTool.ts           Link tool: two-click joints
     Selection.ts          Inspected object, contact-impulse tracking
   ui/
     Hud.ts, styles.css    DOM overlay (glass panels), control guide, start screen, modes
@@ -46,7 +57,7 @@ src/
 tests/                    Vitest suites running real Havok headlessly
 ```
 
-Planned modules (created when their phase starts, not before): `materials/` (physical material presets), `fields/` (gravity fields and zones), `construction/` (joints, hinges, motors), `destruction/` (fracture, structural links, debris), `effects/` (particles, fluid, smoke; visual vs simulated split), `persistence/` (save / load experiments), `ui/panels/` (inspector, settings, environment select).
+Planned modules (created when their phase starts, not before): `destruction/` (fracture, structural links, debris), `effects/` (particles, fluid, smoke; visual vs simulated split), `persistence/` (save / load experiments), `ui/panels/` (inspector, settings, environment select).
 
 ## Frame loop (`App.tick`)
 
@@ -78,6 +89,10 @@ Planned modules (created when their phase starts, not before): `materials/` (phy
 - Friction and restitution live on the shape material; damping, gravity factor and motion type on the body.
 - Sleeping bodies do not react to gravity or property changes until woken; `ObjectFactory.wake` / `wakeAll` handle that.
 - Collision callbacks are enabled only for the selected body.
+- Materials: mass = density x volume; friction and restitution are written to the shape. Changing an object's material rebuilds its mesh and body in place (`ObjectFactory.onRebuilt`); joints are recreated on the new body.
+- Gravity fields apply F = m a at the centre of mass every step. A zone adds its own gravity and cancels the object's share of world gravity, so net gravity inside equals the zone's. The player is not affected by fields.
+- Joints are 6-DoF constraints with locked axes: weld locks all six, hinge and motor leave rotation about the joint axis free, ball leaves all rotation free. Collision between the two joined bodies is disabled.
+- Switching environment disposes all static meshes and bodies of the old one; tests assert the body count returns to zero.
 
 ## Rendering strategy
 

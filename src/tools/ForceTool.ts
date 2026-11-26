@@ -22,9 +22,11 @@ export class ForceTool {
     private readonly factory: ObjectFactory,
   ) {
     world.onBeforeStep.add(() => this.apply());
-    factory.onRemoved.push((o) => {
+    const drop = (o: SandboxObject) => {
       if (this.target === o) this.target = null;
-    });
+    };
+    factory.onRemoved.push(drop);
+    factory.onRebuilt.push(drop);
   }
 
   /** Force magnitude, N. */
