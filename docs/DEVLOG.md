@@ -1,5 +1,36 @@
 # Development log
 
+## 2026-11-26 - Assessment fixes
+
+An audit of the Phase 6 build found 21 problems (3 high, 8 medium, 10 low). This entry records what was done about each.
+
+### Fixed
+- **H1 Fixed-step physics.** The frame loop now takes fixed 1/60 s steps (up to 4 per frame) with render interpolation. Real-time pace holds down to 15 FPS (10 FPS now yields 0.67 s of simulation per second instead of 0.33 s) and the same scene gives identical results from 15 to 240 FPS.
+- **H2 Throwing.** Throws aim for 16 m/s, capped at 2,500 N s for heavy objects. A 1.1 kg chip leaves at 16 m/s instead of 2,381 m/s.
+- **M1** The control guide opens above the menu. **M2** Esc in edit mode opens the menu; Esc also closes the guide. **M3** Tab moves keyboard focus in the menu and inside panels; in edit mode it returns to the lab only when no panel control has focus.
+- **M4 / M5 Spawn placement.** Objects are placed against the first surface in the way, backed off along its normal, kept clear of the player's capsule, and refused ("No room to spawn here") when nothing fits.
+- **M6** Overwriting and deleting a save slot need a second click. Reset, environment loads and save loads can be undone with Z (Z again redoes).
+- **M7** A loading screen with status text shows until the lab is ready.
+- **L1** Save values are clamped (position, speed, spin, field strength and reach, water size and density; a zero rotation becomes identity). **L2** Objects leaving the world in any direction are removed. **L10** Saves store where the player stood, the view direction and the tool.
+- **L3** The getting-started panel sits above the hotbar. **L4** The inspector collapses to its header in play mode until something is selected; U hides the interface. **L5** Minimum text size raised to about 12 px and secondary text lightened. **L6** Camera shake has a setting and defaults to off when the system asks for reduced motion. **L7** Presets are defined in physical pixels with a height cap. **L8** Touch-only devices get a notice.
+- **Performance.** Dynamic resolution (on by default, can be switched off); High preset reduced from 4x to 2x MSAA and capped at 1440 rendered lines; tiny debris no longer casts shadows; contact handling no longer allocates per contact.
+- **Engineering.** Biome linter; GitHub Actions workflow running lint, type check, tests and build; the browser smoke test now lives in the repository (`npm run e2e`, 23 checks); `App.ts` split (controls and menu wiring moved out).
+- **Found while fixing:** the Gravity Laboratory shattered most of its own props within two seconds (57 fractures) because the emitter slammed breakable materials together. The earlier slow test browser had hidden it. Props near the emitter are now rubber, steel and elastic, and a test asserts that no environment except the arena breaks its own props.
+
+### Partly done
+- **H3 Frame rate on the target laptop** is still unmeasured. The presets and dynamic resolution are estimates until someone runs it on the MSI Thin 15.
+- **M8 WebGPU** can now be chosen in Settings (with automatic fallback and reset on failure), but it is not the default because it has never been verified on real hardware.
+
+### Not done
+- **L9** Nobody has listened to the sound.
+- Object pooling for fragments. The bundle is still one 1.65 MB chunk (splitting it by hand nearly doubled the download, so it was reverted).
+- `typescript-eslint` does not support TypeScript 7 yet, so the linter is Biome rather than ESLint.
+
+### Tested
+- `npm run check`: lint clean, type check clean, 93 tests passing (9 new), build succeeds.
+- `npm run e2e`: 23 checks passing in headless Chrome with real input, run twice.
+- The earlier phase scenarios were rerun; two needed their scripts updated because the simulation now runs twice as fast in the 3 FPS test browser.
+
 ## 2026-11-26 - Phase 6: UI and experience
 
 ### Implemented

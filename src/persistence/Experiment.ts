@@ -61,7 +61,13 @@ export interface ExperimentData {
   joints: SavedJoint[];
   fields: SavedField[];
   water: SavedWater[];
+  /** Where the player stood and looked, and the tool in hand. Optional: older saves lack it. */
+  player?: { position: V3; yaw: number; pitch: number };
+  tool?: string;
 }
+
+/** Limits applied to values read from a save, so a hand-edited file cannot create an absurd state. */
+export const SAVE_LIMITS = { position: 200, speed: 200, spin: 100, mu: 5000, fieldRadius: 60, extent: 60 };
 
 export interface ExperimentSystems {
   environmentId: string;
@@ -134,6 +140,22 @@ function vec(v: unknown, n: number, what: string): number[] {
   if (!Array.isArray(v) || v.length !== n || !v.every(isNum)) throw new SaveError(`${what} is not a list of ${n} numbers`);
   return v as number[];
 }
+const clampAbs = (v: number, max: number) => Math.min(max, Math.max(-max, v));
+/** Vector with each component limited to +-max. */
+function bounded(v: unknown, what: string, max: number): V3 {
+  return vec(v, 3, what).map((c) => clampAbs(c, max)) as V3;
+}
+/** Vector whose length is limited to max. */
+function limited(v: unknown, what: string, max: number): V3 {
+  const a = vec(v, 3, what);
+  const len = Math.hypot(a[0], a[1], a[2]);
+  return (len > max ? a.map((c) => (c * max) / len) : a) as V3;
+}
+function rotation(v: unknown, what: string): Q4 {
+  const q = vec(v, 4, what);
+  const len = Math.hypot(q[0], q[1], q[2], q[3]);
+  return len < 1e-6 ? [0, 0, 0, 1] : (q.map((c) => c / len) as Q4);
+}
 function num(v: unknown, what: string): number {
   if (!isNum(v)) throw new SaveError(`${what} is not a number`);
   return v;
@@ -169,10 +191,10 @@ export function validateExperiment(raw: unknown, knownEnvironments: readonly str
       kind: o.kind as PrimitiveKind,
       size: size as V3,
       material: o.material as MaterialId,
-      position: vec(o.position, 3, `${what} position`) as V3,
-      rotation: vec(o.rotation, 4, `${what} rotation`) as Q4,
-      linearVelocity: vec(o.linearVelocity, 3, `${what} velocity`) as V3,
-      angularVelocity: vec(o.angularVelocity, 3, `${what} angular velocity`) as V3,
+      position: bounded(o.position, `${what} position`, SAVE_LIMITS.position),
+      rotation: rotation(o.rotation, `${what} rotation`),
+      linearVelocity: limited(o.linearVelocity, `${what} velocity`, SAVE_LIMITS.speed),
+      angularVelocity: limited(o.angularVelocity, `${what} angular velocity`, SAVE_LIMITS.spin),
       props: {
         mass: num(p.mass, `${what} mass`),
         friction: num(p.friction, `${what} friction`),
@@ -209,13 +231,19 @@ export function validateExperiment(raw: unknown, knownEnvironments: readonly str
   const fields = (d.fields as unknown[]).map((raw, i): SavedField => {
     const f = raw as Record<string, unknown>;
     const what = `Field ${i + 1}`;
-    if (f?.kind === "zone") return { kind: "zone", position: vec(f.position, 3, what) as V3, halfExtents: vec(f.halfExtents, 3, what) as V3, gravity: vec(f.gravity, 3, what) as V3 };
-    if (f?.kind === "attractor" || f?.kind === "repulsor") return { kind: f.kind, position: vec(f.position, 3, what) as V3, mu: num(f.mu, `${what} strength`), radius: num(f.radius, `${what} radius`) };
+    const L = SAVE_LIMITS;
+    if (f?.kind === "zone") return { kind: "zone", position: bounded(f.position, what, L.position), halfExtents: bounded(f.halfExtents, what, L.extent).map(Math.abs) as V3, gravity: limited(f.gravity, what, CONFIG.gravity.max) };
+    if (f?.kind === "attractor" || f?.kind === "repulsor")
+      return { kind: f.kind, position: bounded(f.position, what, L.position), mu: clampAbs(num(f.mu, `${what} strength`), L.mu), radius: Math.min(L.fieldRadius, Math.abs(num(f.radius, `${what} radius`))) };
     throw new SaveError(`${what} has an unknown type.`);
   });
   const water = (d.water as unknown[]).map((raw, i): SavedWater => {
     const w = raw as Record<string, unknown>;
-    return { position: vec(w?.position, 3, `Water ${i + 1}`) as V3, halfExtents: vec(w?.halfExtents, 3, `Water ${i + 1}`) as V3, density: isNum(w?.density) ? w.density : CONFIG.water.density };
+    return {
+      position: bounded(w?.position, `Water ${i + 1}`, SAVE_LIMITS.position),
+      halfExtents: bounded(w?.halfExtents, `Water ${i + 1}`, SAVE_LIMITS.extent).map(Math.abs) as V3,
+      density: isNum(w?.density) ? Math.min(20000, Math.max(1, w.density)) : CONFIG.water.density,
+    };
   });
   return {
     version: SAVE_VERSION,
@@ -227,7 +255,15 @@ export function validateExperiment(raw: unknown, knownEnvironments: readonly str
     joints,
     fields,
     water,
+    player: readPlayer(d.player),
+    tool: typeof d.tool === "string" ? d.tool.slice(0, 20) : undefined,
   };
+}
+
+function readPlayer(raw: unknown): ExperimentData["player"] {
+  const p = raw as Record<string, unknown> | undefined;
+  if (!p || !Array.isArray(p.position) || p.position.length !== 3 || !p.position.every(isNum) || !isNum(p.yaw) || !isNum(p.pitch)) return undefined;
+  return { position: (p.position as number[]).map((c) => clampAbs(c, SAVE_LIMITS.position)) as V3, yaw: p.yaw % (Math.PI * 2), pitch: clampAbs(p.pitch, 1.55) };
 }
 
 // --- restore ----------------------------------------------------------------
@@ -255,7 +291,7 @@ export function restoreExperiment(data: ExperimentData, sys: ExperimentSystems):
       size: new Vector3(...o.size),
       material: o.material,
       position: new Vector3(...o.position),
-      rotation: new Quaternion(...o.rotation).normalize(),
+      rotation: new Quaternion(...o.rotation),
       props: o.props,
       generation: o.generation,
     });

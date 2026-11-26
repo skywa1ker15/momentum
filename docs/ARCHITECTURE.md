@@ -15,6 +15,8 @@ src/
   main.ts                 Boot: engine + Havok, error screen, device-loss handling
   core/
     App.ts                Composition root and frame loop; player-facing actions
+    Controls.ts           Maps play-mode input to actions
+    MenuController.ts     Connects the menu to the app (saves, files, settings)
     config.ts             Tuning constants, limits, graphics quality presets
     Settings.ts           User settings: load, sanitise, save (browser storage)
   render/                 VISUAL ONLY
@@ -56,6 +58,8 @@ src/
     Fracture.ts           Fragment geometry (pure functions, seeded)
   objects/
     ObjectFactory.ts      Spawn / remove / duplicate objects, editable PhysicalProps, limits, instancing
+    Interpolator.ts       Render interpolation between fixed physics steps (visual only)
+    SpawnPlacement.ts     Collision-free spawn position in front of the player
     ObjectState.ts        Engine readout: velocity, momentum, kinetic energy (linear + rotational)
   player/
     PlayerController.ts   Havok character controller + view angles
@@ -80,13 +84,14 @@ All planned modules now exist.
 
 ## Frame loop (`App.tick`)
 
-1. Read input; apply look.
-2. `PlayerController.update(realDt)` - character moves in real time, independent of pause and time scale.
-3. Camera follows the player.
-4. Tools update their targets (hold point).
-5. `PhysicsWorld.step(realDt)` - clamps the delta to 1/30 s, multiplies by time scale, skips when paused; `onBeforeStep` lets tools drive bodies.
-6. Housekeeping (out-of-bounds cull), HUD update.
-7. `scene.render()`, then input frame state is cleared.
+1. `Interpolator.restore()` puts every mesh back on its exact simulated transform.
+2. Read input; apply look; `Controls` turns input into actions.
+3. `PlayerController.update(realDt)` - the character moves in real time, independent of pause and time scale.
+4. `PhysicsWorld.advance(realDt)` - accumulates real time (x time scale) and takes fixed 1/60 s steps, at most 4 per frame. Results therefore do not depend on the frame rate, and the simulation keeps real-time pace down to 15 FPS. `onBeforeStep` lets tools, fields, water and blasts apply forces; `onAfterStep` runs destruction and records states for interpolation.
+5. Housekeeping (out-of-bounds cull, particle budget, dynamic resolution), HUD update.
+6. `Interpolator.apply(alpha)` draws moving meshes between the last two simulated states, then `scene.render()`.
+
+Nothing is simulated while the menu is open. `PhysicsWorld.step(dt)` remains as a single-step API for tests.
 
 ## Data flow
 
@@ -130,7 +135,8 @@ All planned modules now exist.
 - Static environment meshes have frozen world matrices; repeated details (wall ribs, ceiling lights) are GPU instances of one source mesh.
 - Every sandbox object is an instance of a unit-sized source mesh per (shape, colour), scaled to size.
 - One shadow-casting directional light (PCF). Reflections come from a cube map rendered once from the static environment.
-- Quality presets (low / medium / high) control pixel ratio, shadow resolution, MSAA, bloom and glow.
+- Quality presets (low / medium / high) control render scale (relative to the display's physical pixels, with a height cap), shadow resolution, MSAA, bloom and glow. Dynamic resolution lowers the render scale by up to 40 % when the frame rate stays under 48 FPS and raises it again when there is headroom.
+- Objects smaller than 0.004 m^3 do not cast shadows.
 
 ## Babylon 9 notes
 

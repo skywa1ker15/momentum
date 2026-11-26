@@ -8,6 +8,23 @@
     <title>MOMENTUM - Physics Laboratory</title>
   </head>
   <body>
+    <style>
+      #boot { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: #05070b; color: #e8eef5; font-family: "Inter", "Segoe UI", system-ui, sans-serif; text-align: center; }
+      #boot h1 { margin: 0 0 18px; font-size: 30px; font-weight: 300; letter-spacing: 0.42em; margin-right: -0.42em; }
+      #boot p { margin: 0; color: #a3afbf; font-size: 13px; letter-spacing: 0.08em; }
+      #boot .bar { width: 180px; height: 2px; margin: 0 auto 16px; background: rgba(255, 255, 255, 0.12); overflow: hidden; border-radius: 2px; }
+      #boot .bar::after { content: ""; display: block; width: 40%; height: 100%; background: #5ad8ff; animation: boot-slide 1.2s ease-in-out infinite; }
+      @keyframes boot-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+      @media (prefers-reduced-motion: reduce) { #boot .bar::after { animation: none; width: 100%; opacity: 0.5; } }
+    </style>
+    <div id="boot" role="status" aria-live="polite">
+      <div>
+        <h1>MOMENTUM</h1>
+        <div class="bar"></div>
+        <p id="boot-status">Loading the laboratory</p>
+        <noscript><p>MOMENTUM needs JavaScript to run.</p></noscript>
+      </div>
+    </div>
     <canvas id="render-canvas" tabindex="0" aria-label="MOMENTUM 3D viewport"></canvas>
     <div id="ui-root"></div>
     <script type="module" src="/src/main.ts"></script>

@@ -80,7 +80,7 @@ describe("player controller", () => {
 });
 
 describe("grab tool", () => {
-  it("targets, carries, and throws with speed = impulse / mass", async () => {
+  it("targets, carries, and throws at the configured throw speed", async () => {
     const lab = await createLab();
     const grab = new GrabTool(lab.world, lab.factory);
     const eye = new Vector3(0, 1.6, 10);
@@ -102,7 +102,7 @@ describe("grab tool", () => {
     grab.throwOrPush(eye, side);
     expect(grab.held).toBeNull();
     lab.world.step(1 / 60);
-    const expectedSpeed = CONFIG.interaction.throwImpulse / crate.props.mass;
+    const expectedSpeed = Math.min(CONFIG.interaction.throwSpeed, CONFIG.interaction.throwImpulse / crate.props.mass);
     expect(crate.body.getLinearVelocity().x).toBeGreaterThan(expectedSpeed * 0.9);
     expect(crate.body.getLinearVelocity().x).toBeLessThan(expectedSpeed * 1.1);
     lab.dispose();

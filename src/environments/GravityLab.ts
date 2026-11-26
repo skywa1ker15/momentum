@@ -126,7 +126,9 @@ export class GravityLab extends BaseEnvironment {
     const c = GravityLab.COLUMN;
     fields.addZone(new Vector3(c.x, c.half.y, c.z), new Vector3(0, 3, 0), c.half);
 
-    const mats: MaterialId[] = ["wood", "steel", "rubber", "glass", "plastic", "ice", "elastic", "concrete"];
+    // The emitter slams these together at 10 m/s and more, so they are materials that survive it:
+    // the room demonstrates gravity, not destruction.
+    const mats: MaterialId[] = ["rubber", "steel", "elastic"];
     // Ring of mixed-material objects on the pad, close enough to be lifted
     for (let i = 0; i < 10; i++) {
       const a = (i / 10) * Math.PI * 2;

@@ -3,7 +3,11 @@ export const CONFIG = {
   physics: {
     /** Standard gravity, m/s^2 along -Y. */
     gravity: -9.81,
-    /** Largest simulation step taken in one frame (seconds). Keeps the solver stable on frame hitches. */
+    /** Fixed simulation step used by the frame loop (seconds). */
+    fixedStep: 1 / 60,
+    /** Most fixed steps taken in one frame; below 60 / maxSubSteps FPS the simulation falls behind real time. */
+    maxSubSteps: 4,
+    /** Largest single step PhysicsWorld.step() will take (seconds). */
     maxStep: 1 / 30,
     timeScales: [0.1, 0.25, 0.5, 1, 2] as readonly number[],
   },
@@ -12,6 +16,11 @@ export const CONFIG = {
     maxObjects: 350,
     /** Objects that fall out of the world below this height are removed. */
     killPlaneY: -30,
+    /** Objects further than this from the room's centre horizontally, or above this height, are removed. */
+    worldRadius: 70,
+    worldCeiling: 90,
+    /** Objects smaller than this volume (m^3) do not cast shadows. */
+    shadowMinVolume: 0.004,
   },
   player: {
     capsuleHeight: 1.8,
@@ -35,7 +44,9 @@ export const CONFIG = {
     holdMaxSpeed: 18,
     /** Bodies heavier than this lag behind the hold point proportionally (kg). */
     carryStrengthMass: 400,
-    /** Impulse (N*s) applied when throwing or pushing. */
+    /** Throwing gives the object this speed (m/s)... */
+    throwSpeed: 16,
+    /** ...unless that would take more than this impulse (N*s): heavy objects are thrown more slowly. */
     throwImpulse: 2500,
     spawnDistance: 2.6,
     /** Radians of held-object rotation per pixel of mouse movement. */
@@ -148,18 +159,35 @@ export const CONFIG = {
 export type QualityLevel = "low" | "medium" | "high";
 
 export interface QualitySettings {
-  /** Upper bound on rendered pixels per CSS pixel (capped by the display's devicePixelRatio). */
-  pixelRatio: number;
+  /** Share of the display's native (physical) resolution to render at, before the height cap. */
+  renderScale: number;
+  /** Rendered height is capped at this many physical pixels. */
+  maxRenderHeight: number;
   shadowMapSize: number;
   msaaSamples: number;
   bloom: boolean;
   glow: boolean;
 }
 
+/**
+ * Presets are estimates for an RTX 2050-class GPU and have not been measured on one.
+ * Dynamic resolution (see App) lowers the render scale further when the frame rate drops.
+ */
 export const QUALITY: Record<QualityLevel, QualitySettings> = {
-  low: { pixelRatio: 0.67, shadowMapSize: 1024, msaaSamples: 1, bloom: false, glow: false },
-  medium: { pixelRatio: 1, shadowMapSize: 2048, msaaSamples: 1, bloom: true, glow: true },
-  high: { pixelRatio: 2, shadowMapSize: 4096, msaaSamples: 4, bloom: true, glow: true },
+  low: { renderScale: 0.7, maxRenderHeight: 900, shadowMapSize: 1024, msaaSamples: 1, bloom: false, glow: false },
+  medium: { renderScale: 1, maxRenderHeight: 1080, shadowMapSize: 2048, msaaSamples: 1, bloom: true, glow: true },
+  high: { renderScale: 1, maxRenderHeight: 1440, shadowMapSize: 4096, msaaSamples: 2, bloom: true, glow: true },
+};
+
+export const DYNAMIC_RESOLUTION = {
+  /** Lowest extra scale dynamic resolution may apply on top of the preset. */
+  minScale: 0.6,
+  step: 0.1,
+  /** Lower the scale after this long below `lowFps`; raise it after this long above `highFps` (seconds). */
+  lowFps: 48,
+  highFps: 57,
+  lowerAfter: 1.5,
+  raiseAfter: 4,
 };
 
 export const QUALITY_ORDER: readonly QualityLevel[] = ["low", "medium", "high"];

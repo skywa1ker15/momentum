@@ -93,6 +93,11 @@ export function meshScaling(kind: PrimitiveKind, size: Vector3): Vector3 {
   return kind === "sphere" ? new Vector3(size.x, size.x, size.x) : kind === "cylinder" ? new Vector3(size.x, size.y, size.x) : size.clone();
 }
 
+/** Size a primitive is spawned with when none is given. */
+export function defaultSize(kind: PrimitiveKind): Vector3 {
+  return DEFAULT_SIZE[kind];
+}
+
 export function primitiveVolume(kind: PrimitiveKind, size: Vector3): number {
   switch (kind) {
     case "box":
@@ -294,11 +299,13 @@ export class ObjectFactory {
     return [...this.objects.values()].filter((o) => o.generation > 0);
   }
 
-  /** Removes objects that have fallen out of the world. Returns how many were removed. */
+  /** Removes objects that have left the world in any direction. Returns how many were removed. */
   cullOutOfBounds(): number {
+    const L = CONFIG.limits;
     let removed = 0;
     for (const obj of [...this.objects.values()]) {
-      if (obj.mesh.position.y < CONFIG.limits.killPlaneY) {
+      const p = obj.mesh.position;
+      if (p.y < L.killPlaneY || p.y > L.worldCeiling || Math.abs(p.x) > L.worldRadius || Math.abs(p.z) > L.worldRadius || !Number.isFinite(p.x + p.y + p.z)) {
         this.remove(obj);
         removed++;
       }

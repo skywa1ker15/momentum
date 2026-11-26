@@ -4,12 +4,17 @@ import { CONFIG } from "../core/config";
 import type { ObjectFactory, SandboxObject } from "../objects/ObjectFactory";
 import type { PhysicsWorld } from "../physics/PhysicsWorld";
 
+/** Impulse (N s) for a throw: enough for throwSpeed, capped so heavy objects are thrown more slowly. */
+export function throwImpulse(mass: number): number {
+  return Math.min(CONFIG.interaction.throwImpulse, mass * CONFIG.interaction.throwSpeed);
+}
+
 /**
  * Grab / carry / throw / push.
  * A held body stays fully dynamic: each step its velocity is driven towards the
  * hold point, so it still collides with and pushes other bodies. Heavy bodies
- * lag behind in proportion to their mass. Throwing applies a real impulse, so
- * the resulting speed is impulse / mass.
+ * lag behind in proportion to their mass. Throwing applies a real impulse sized
+ * for a fixed throw speed, capped so heavy objects leave more slowly.
  */
 export class GrabTool {
   held: SandboxObject | null = null;
@@ -73,7 +78,7 @@ export class GrabTool {
     const obj = this.held ?? this.target(eye, dir);
     if (!obj) return null;
     this.held = null;
-    obj.body.applyImpulse(dir.scale(CONFIG.interaction.throwImpulse), obj.body.getObjectCenterWorld());
+    obj.body.applyImpulse(dir.scale(throwImpulse(obj.props.mass)), obj.body.getObjectCenterWorld());
     return obj;
   }
 

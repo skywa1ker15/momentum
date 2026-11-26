@@ -44,6 +44,9 @@ export class Menu {
   private readonly ranges: Record<"sensitivity" | "fov" | "volume", { input: HTMLInputElement; value: HTMLElement }>;
   private readonly invert: HTMLInputElement;
   private environmentNames = new Map<string, string>();
+  private readonly slotFilled: boolean[] = [];
+  private readonly toggles = new Map<string, HTMLInputElement>();
+  private readonly rendererButtons = new Map<string, HTMLButtonElement>();
 
   constructor(parent: HTMLElement, environments: readonly MenuEnvironment[]) {
     for (const e of environments) this.environmentNames.set(e.id, e.name);
@@ -76,6 +79,9 @@ export class Menu {
     const home = addTab("home", "Laboratory");
     home.append(el("div", "start-eyebrow", "Experimental physics facility"), el("h1", undefined, "MOMENTUM"));
     home.append(el("p", undefined, "A sandbox laboratory. Spawn objects in real materials, bend gravity, join parts with hinges, motors and springs, and break things, all simulated by the Havok engine."));
+    if (typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches) {
+      home.appendChild(el("p", "menu-warning", "MOMENTUM needs a mouse and keyboard. It cannot be played on a touch-only device."));
+    }
     this.enterButton = el("button", "enter-button", "Enter laboratory");
     this.enterButton.type = "button";
     this.enterButton.addEventListener("click", () => this.onEnter?.());
@@ -113,9 +119,10 @@ export class Menu {
     for (let slot = 1; slot <= 3; slot++) {
       const row = el("div", "slot-row");
       const info = el("div", "slot-info");
-      const save = this.action("Save", () => this.onSave?.(slot));
+      // Overwriting and deleting cannot be undone, so they ask for a second click.
+      const save = this.action("Save", () => this.onSave?.(slot), () => (this.slotFilled[slot - 1] ? "Overwrite?" : null));
       const load = this.action("Load", () => this.onLoad?.(slot));
-      const remove = this.action("Delete", () => this.onDeleteSlot?.(slot));
+      const remove = this.action("Delete", () => this.onDeleteSlot?.(slot), () => "Delete?");
       const buttons = el("div", "slot-actions");
       buttons.append(save, load, remove);
       row.append(el("span", "slot-number", String(slot)), info, buttons);
@@ -178,6 +185,29 @@ export class Menu {
     this.invert.addEventListener("change", () => this.onSettings?.({ invertY: this.invert.checked }));
     invRow.append(el("span", "setting-label", "Invert vertical look"), this.invert, el("span", "toggle-track"));
     set.appendChild(invRow);
+    const toggle = (key: "dynamicResolution" | "cameraShake", label: string) => {
+      const row = el("label", "setting-row toggle-row");
+      const input = el("input");
+      input.type = "checkbox";
+      input.addEventListener("change", () => this.onSettings?.({ [key]: input.checked }));
+      row.append(el("span", "setting-label", label), input, el("span", "toggle-track"));
+      set.appendChild(row);
+      this.toggles.set(key, input);
+    };
+    toggle("dynamicResolution", "Dynamic resolution");
+    toggle("cameraShake", "Camera shake");
+    const rRow = el("div", "setting-row");
+    rRow.appendChild(el("span", "setting-label", "Renderer"));
+    const rButtons = el("div", "slot-actions");
+    for (const [id, label] of [["webgl2", "WebGL 2"], ["webgpu", "WebGPU (experimental)"]] as const) {
+      const b = this.action(label, () => this.onSettings?.({ renderer: id }));
+      rButtons.appendChild(b);
+      this.rendererButtons.set(id, b);
+    }
+    rRow.appendChild(rButtons);
+    set.appendChild(rRow);
+    this.rendererNote = el("p", "menu-note", "");
+    set.appendChild(this.rendererNote);
     const hintsRow = el("div", "setting-row");
     hintsRow.append(el("span", "setting-label", "Getting-started checklist"), this.action("Show again", () => this.onResetHints?.()));
     set.appendChild(hintsRow);
@@ -186,6 +216,8 @@ export class Menu {
     this.show("home");
   }
 
+  private rendererNote!: HTMLElement;
+  private activeRenderer = "webgl2";
   private formats!: Record<"sensitivity" | "fov" | "volume", (v: number) => string>;
 
   setVisible(visible: boolean): void {
@@ -224,6 +256,7 @@ export class Menu {
         row.info.innerHTML = "";
         row.info.append(el("span", "slot-title empty", "Empty slot"));
       }
+      this.slotFilled[i] = s.summary !== null;
       row.load.disabled = !s.summary;
       row.remove.disabled = !s.summary;
     });
@@ -241,15 +274,47 @@ export class Menu {
       this.ranges[key].value.textContent = this.formats[key](s[key]);
     }
     this.invert.checked = s.invertY;
+    this.toggles.get("dynamicResolution")!.checked = s.dynamicResolution;
+    this.toggles.get("cameraShake")!.checked = s.cameraShake;
+    for (const [id, b] of this.rendererButtons) b.classList.toggle("active", id === s.renderer);
+    this.rendererNote.textContent =
+      s.renderer !== this.activeRenderer
+        ? "Reload the page to switch renderer. If WebGPU fails to start, the lab falls back to WebGL 2 and resets this choice."
+        : "Dynamic resolution lowers the render resolution when the frame rate drops. WebGPU is experimental and has not yet been verified on real hardware.";
   }
 
-  private action(label: string, onClick: () => void): HTMLButtonElement {
+  /** Tells the menu which renderer is actually running ("webgl2" or "webgpu"). */
+  setActiveRenderer(id: string): void {
+    this.activeRenderer = id;
+  }
+
+  /**
+   * A menu button. When `confirmLabel` returns text, the first click only changes the label
+   * to that text for three seconds and the action runs on a second click.
+   */
+  private action(label: string, onClick: () => void, confirmLabel?: () => string | null): HTMLButtonElement {
     const b = el("button", "chip-button", label);
     b.type = "button";
+    let armed = 0;
+    const disarm = () => {
+      window.clearTimeout(armed);
+      armed = 0;
+      b.textContent = label;
+      b.classList.remove("confirm");
+    };
     b.addEventListener("click", () => {
       this.onUiSound?.();
+      const ask = armed ? null : (confirmLabel?.() ?? null);
+      if (ask) {
+        b.textContent = ask;
+        b.classList.add("confirm");
+        armed = window.setTimeout(disarm, 3000);
+        return;
+      }
+      if (armed) disarm();
       onClick();
     });
+    b.addEventListener("blur", () => armed && disarm());
     return b;
   }
 }

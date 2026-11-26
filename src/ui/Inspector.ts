@@ -257,7 +257,7 @@ export class Inspector {
   }
 
   setDestructionLevel(level: number): void {
-    this.destructionButtons.forEach((b, i) => b.classList.toggle("active", i === level));
+    for (const [i, b] of this.destructionButtons.entries()) b.classList.toggle("active", i === level);
   }
 
   setEnvironment(id: string): void {

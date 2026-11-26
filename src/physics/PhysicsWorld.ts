@@ -41,8 +41,16 @@ export class PhysicsWorld {
   /** Simulated seconds elapsed since creation. */
   simTime = 0;
 
+  /** Fraction (0..1) of a fixed step by which rendering is ahead of the last simulated state. */
+  alpha = 1;
+  /** Fixed steps taken by the last advance() call. */
+  lastSteps = 0;
+
+  private accumulator = 0;
   private readonly engine: PhysicsEngine;
   private readonly rayResult = new PhysicsRaycastResult();
+  /** Reused for every contact notification to avoid per-contact allocations. Do not retain it. */
+  private readonly contact: ContactEvent = { a: null as unknown as PhysicsBody, b: null as unknown as PhysicsBody, impulse: 0, point: null, normal: null };
 
   constructor(
     readonly scene: Scene,
@@ -53,11 +61,49 @@ export class PhysicsWorld {
     scene.physicsEnabled = false; // we step manually in step()
     this.engine = scene.getPhysicsEngine() as PhysicsEngine;
     plugin.onCollisionObservable.add((ev) => {
-      if (ev.impulse > 0) this.onContact.notifyObservers({ a: ev.collider, b: ev.collidedAgainst, impulse: ev.impulse, point: ev.point, normal: ev.normal });
+      if (ev.impulse <= 0) return;
+      const c = this.contact;
+      c.a = ev.collider;
+      c.b = ev.collidedAgainst;
+      c.impulse = ev.impulse;
+      c.point = ev.point;
+      c.normal = ev.normal;
+      this.onContact.notifyObservers(c);
     });
   }
 
-  /** Advance by a real-time delta (seconds). Applies pause, clamping and time scale. Returns simulated seconds. */
+  /**
+   * Frame entry point: advances the simulation by real time using FIXED steps.
+   *
+   * Real time (x time scale) is accumulated and consumed in steps of exactly
+   * CONFIG.physics.fixedStep, so behaviour does not depend on the frame rate and the
+   * simulation keeps real-time pace down to fixedStep * maxSubSteps per frame (15 FPS).
+   * Below that, the excess is dropped rather than queued. `alpha` is the leftover fraction
+   * of a step, used to interpolate rendering between the last two simulated states.
+   * Returns simulated seconds.
+   */
+  advance(realDelta: number): number {
+    this.lastSteps = 0;
+    if (this.paused || realDelta <= 0) return 0;
+    const h = CONFIG.physics.fixedStep;
+    const max = CONFIG.physics.maxSubSteps;
+    this.accumulator = Math.min(this.accumulator + realDelta * this.timeScale, h * max);
+    while (this.accumulator >= h - 1e-9 && this.lastSteps < max) {
+      this.accumulator = Math.max(0, this.accumulator - h);
+      this.onBeforeStep.notifyObservers(h);
+      this.engine._step(h);
+      this.simTime += h;
+      this.onAfterStep.notifyObservers(h);
+      this.lastSteps++;
+    }
+    this.alpha = this.accumulator / h;
+    return this.lastSteps * h;
+  }
+
+  /**
+   * Advances by exactly one step of the given size (clamped, x time scale). Used by tests and
+   * tools that need direct control; the app's frame loop uses advance().
+   */
   step(realDelta: number): number {
     if (this.paused || realDelta <= 0) return 0;
     const dt = Math.min(realDelta, CONFIG.physics.maxStep) * this.timeScale;

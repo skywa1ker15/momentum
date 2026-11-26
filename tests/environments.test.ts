@@ -68,6 +68,16 @@ describe("environments", () => {
     lab.dispose();
   });
 
+  it("no environment except the arena breaks its own props in the first 12 seconds", async () => {
+    for (const entry of ENVIRONMENTS) {
+      if (entry.id === "destruction-arena") continue;
+      const lab = await createLab(true, entry.create());
+      while (lab.world.simTime < 12) lab.world.advance(1 / 60);
+      expect([entry.id, lab.destruction.stats.fractures]).toEqual([entry.id, 0]);
+      lab.dispose();
+    }
+  });
+
   it("test chamber still exposes its deck and ramp landmarks", () => {
     expect(TestChamber.DECK.top).toBeGreaterThan(3);
   });

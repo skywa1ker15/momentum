@@ -23,7 +23,13 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { loadSettings, saveSettings, sanitizeSettings, type Settings } from "./Settings";
 import { SoundEngine } from "../audio/SoundEngine";
 import { captureExperiment, restoreExperiment, validateExperiment, type ExperimentData, type ExperimentSystems } from "../persistence/Experiment";
-import { clearSlot, downloadExperiment, listSlots, readExperimentFile, readSlot, writeSlot } from "../persistence/Storage";
+import { listSlots } from "../persistence/Storage";
+import { handleControls } from "./Controls";
+import { wireMenu } from "./MenuController";
+import { Interpolator } from "../objects/Interpolator";
+import { boundingRadius, findSpawnPosition } from "../objects/SpawnPlacement";
+import { defaultSize, primitiveVolume } from "../objects/ObjectFactory";
+import { DYNAMIC_RESOLUTION } from "./config";
 import { MATERIALS, MATERIAL_ORDER, DEFAULT_MATERIAL, type MaterialId } from "../materials/Materials";
 import { ObjectFactory, PRIMITIVE_KINDS, type PrimitiveKind, type SandboxObject } from "../objects/ObjectFactory";
 import { PlayerController, type MoveIntent } from "../player/PlayerController";
@@ -38,7 +44,7 @@ import { Hud, type HudMode } from "../ui/Hud";
 import { mass as formatMass, si } from "../ui/format";
 
 export type ToolId = "hand" | "force" | "field" | "link" | "blast";
-const TOOLS: readonly ToolId[] = ["hand", "force", "field", "link", "blast"];
+export const TOOLS: readonly ToolId[] = ["hand", "force", "field", "link", "blast"];
 /** Particle budget per graphics quality. */
 const FX_BUDGET: Record<QualityLevel, number> = { low: 0.4, medium: 0.75, high: 1 };
 
@@ -72,8 +78,17 @@ export class App {
   selectedKind: PrimitiveKind = "box";
 
   private readonly camera: FreeCamera;
-  private readonly input: InputManager;
-  private readonly hud: Hud;
+  readonly input: InputManager;
+  readonly hud: Hud;
+  private readonly interp: Interpolator;
+  private readonly canvas: HTMLCanvasElement;
+  private undoData: ExperimentData | null = null;
+  /** Extra render scale applied by dynamic resolution (1 = the preset's own scale). */
+  private dynScale = 1;
+  private lowTime = 0;
+  private highTime = 0;
+  private lastRaiseAt = -Infinity;
+  private raiseBlockedUntil = 0;
   private readonly lighting: Lighting;
   private readonly pipeline: RenderPipeline;
   private readonly overlay: VectorOverlay;
@@ -114,12 +129,19 @@ export class App {
     this.pipeline.bakeReflections(this.environment);
 
     this.factory = new ObjectFactory(this.scene, materials);
-    this.factory.onSpawned.push((o) => this.lighting.addCaster(o.mesh));
+    // Level of detail for shadows: tiny debris does not cast.
+    const casts = (o: SandboxObject) => primitiveVolume(o.kind, o.size) >= CONFIG.limits.shadowMinVolume;
+    this.factory.onSpawned.push((o) => {
+      if (casts(o)) this.lighting.addCaster(o.mesh);
+    });
     this.factory.onRemoved.push((o) => this.lighting.removeCaster(o.mesh));
     this.factory.onRebuilt.push((o, oldMesh) => {
       this.lighting.removeCaster(oldMesh);
-      this.lighting.addCaster(o.mesh);
+      if (casts(o)) this.lighting.addCaster(o.mesh);
     });
+    this.interp = new Interpolator(this.factory);
+    this.world.onAfterStep.add(() => this.interp.capture());
+    this.canvas = canvas;
     this.fields = new GravityFields(this.world, this.factory);
     this.joints = new JointManager(this.scene, this.factory);
     this.destruction = new DestructionSystem(this.world, this.factory, this.joints, Date.now() & 0xffff);
@@ -140,11 +162,14 @@ export class App {
     this.overlay = new VectorOverlay(this.scene);
 
     this.input = new InputManager(canvas);
+    // In edit mode Tab returns to the lab unless a panel control has focus, where it moves focus as usual.
+    this.input.captureTab = () => this.mode === "edit" && !this.hud.panelHasFocus();
     this.hud = new Hud(uiRoot, ENVIRONMENTS, PRIMITIVE_KINDS, TOOLS);
     this.hud.setEnvironment(this.environment.id, this.environment.name);
     this.hud.setSelected(this.selectedKind);
     this.selectMaterial(this.selectedMaterial);
-    this.wireMenu();
+    this.hud.menu.setActiveRenderer(backend === "WebGPU" ? "webgpu" : "webgl2");
+    wireMenu(this);
     this.applySettings();
     this.input.onLockChange = (locked) => {
       this.mode = locked ? "play" : this.pendingEdit ? "edit" : "menu";
@@ -156,6 +181,7 @@ export class App {
         if (!this.settings.hintsDone) this.hud.onboarding.start();
       }
       if (this.mode === "menu") this.hud.menu.setSlots(listSlots());
+      if (this.mode !== "menu") this.hud.closeGuide();
       if (this.mode === "edit") this.hud.onboarding.complete("edit");
       if (!locked) {
         this.grab.release();
@@ -200,7 +226,10 @@ export class App {
     });
 
     this.applyQuality();
-    window.addEventListener("resize", () => this.engine.resize());
+    window.addEventListener("resize", () => {
+      this.applyResolution();
+      this.engine.resize();
+    });
     this.syncCamera(1);
   }
 
@@ -213,12 +242,17 @@ export class App {
   spawnSelected(): SandboxObject | null {
     const eye = this.player.eyePosition;
     const dir = this.player.viewDirection;
-    const max = CONFIG.interaction.spawnDistance;
-    const hit = this.world.raycast(eye, eye.add(dir.scale(max + 0.6)));
-    const dist = hit ? Math.max(0.9, hit.distance - 0.6) : max;
-    const obj = this.factory.spawn({ kind: this.selectedKind, material: this.selectedMaterial, position: eye.add(dir.scale(dist)) });
-    if (!obj) this.hud.toast(`Object limit reached (${CONFIG.limits.maxObjects})`);
-    return obj;
+    if (this.factory.atLimit) {
+      this.hud.toast(`Object limit reached (${CONFIG.limits.maxObjects})`);
+      return null;
+    }
+    const size = defaultSize(this.selectedKind);
+    const position = findSpawnPosition(this.world, eye, dir, this.player.position, boundingRadius(this.selectedKind, size));
+    if (!position) {
+      this.hud.toast("No room to spawn here");
+      return null;
+    }
+    return this.factory.spawn({ kind: this.selectedKind, material: this.selectedMaterial, position });
   }
 
   selectKind(kind: PrimitiveKind): void {
@@ -239,6 +273,7 @@ export class App {
 
   /** Loads another environment with its starting experiment (or reloads the current one). */
   loadEnvironment(id: string): void {
+    this.undoData = this.captureExperiment();
     this.switchEnvironment(id, true);
   }
 
@@ -298,7 +333,7 @@ export class App {
       this.effects.explosion(wave);
       const distance = Vector3.Distance(wave.center, this.player.eyePosition);
       this.sound.explosion(wave.radius / 10, distance);
-      this.shake = Math.min(0.35, this.shake + (wave.radius / 10) * (1.6 / (1 + distance)));
+      if (this.settings.cameraShake) this.shake = Math.min(0.35, this.shake + (wave.radius / 10) * (1.6 / (1 + distance)));
     };
     this.water.onSplash = (obj, point, speed) => {
       if (speed > 1) {
@@ -389,9 +424,21 @@ export class App {
   }
 
   resetExperiment(): void {
+    this.undoData = this.captureExperiment();
     this.clearExperiment();
     this.startExperiment();
-    this.hud.toast("Experiment reset");
+    this.hud.toast("Experiment reset · Z to undo");
+  }
+
+  /** Brings back the experiment as it was before the last reset, environment load or save load. */
+  undo(): void {
+    const data = this.undoData;
+    if (!data) {
+      this.hud.toast("Nothing to undo");
+      return;
+    }
+    const result = this.loadExperiment(data); // also stores the current state, so Z again redoes
+    this.hud.toast(result.ok ? "Restored previous experiment" : result.message);
   }
 
   /** Removes every object, joint and field and releases all tools. */
@@ -447,7 +494,12 @@ export class App {
     this.sound.setVolume(s.volume);
     if (this.quality !== s.quality) {
       this.quality = s.quality;
+      this.dynScale = 1;
       this.applyQuality();
+    }
+    if (!s.dynamicResolution && this.dynScale !== 1) {
+      this.dynScale = 1;
+      this.applyResolution();
     }
     this.hud.menu.setSettings(s);
   }
@@ -468,7 +520,11 @@ export class App {
   }
 
   captureExperiment(): ExperimentData {
-    return captureExperiment(this.experimentSystems());
+    const data = captureExperiment(this.experimentSystems());
+    const p = this.player.position;
+    data.player = { position: [p.x, p.y, p.z], yaw: this.player.yaw, pitch: this.player.pitch };
+    data.tool = this.tool;
+    return data;
   }
 
   /**
@@ -482,65 +538,22 @@ export class App {
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : "That is not a valid experiment." };
     }
+    this.undoData = this.captureExperiment();
     this.switchEnvironment(data.environment, false);
     const report = restoreExperiment(data, this.experimentSystems());
     this.hud.inspector.setGravity(data.gravityY);
     this.hud.inspector.setDestructionLevel(this.destruction.level);
-    this.player.teleport(this.environment.spawnPoint, this.environment.spawnYaw);
+    if (data.player) {
+      this.player.teleport(new Vector3(...data.player.position), data.player.yaw);
+      this.player.pitch = data.player.pitch;
+    } else {
+      this.player.teleport(this.environment.spawnPoint, this.environment.spawnYaw);
+    }
+    if (data.tool && (TOOLS as readonly string[]).includes(data.tool)) this.setTool(data.tool as ToolId);
     this.world.paused = false;
     this.world.timeScale = 1;
     const skipped = report.skipped ? ` (${report.skipped} item${report.skipped === 1 ? "" : "s"} could not be restored)` : "";
     return { ok: true, message: `Loaded ${report.objects} objects and ${report.joints} joints${skipped}.` };
-  }
-
-  private wireMenu(): void {
-    const menu = this.hud.menu;
-    menu.onEnter = () => {
-      this.sound.unlock();
-      this.input.requestLock();
-    };
-    menu.onUiSound = () => {
-      this.sound.unlock();
-      this.sound.click();
-    };
-    menu.onShowGuide = () => this.hud.toggleGuide();
-    menu.onEnvironment = (id) => {
-      this.switchEnvironment(id, true);
-      menu.setStatus("");
-    };
-    menu.onSettings = (change) => this.updateSettings(change);
-    menu.onResetHints = () => {
-      this.updateSettings({ hintsDone: false });
-      this.hud.onboarding.start();
-    };
-    menu.onSave = (slot) => {
-      const ok = writeSlot(slot, this.captureExperiment());
-      menu.setSlots(listSlots());
-      menu.setStatus(ok ? `Saved to slot ${slot}.` : "Could not save: browser storage is unavailable or full.", !ok);
-    };
-    menu.onLoad = (slot) => {
-      const result = this.loadExperiment(readSlot(slot));
-      menu.setStatus(result.message, !result.ok);
-    };
-    menu.onDeleteSlot = (slot) => {
-      clearSlot(slot);
-      menu.setSlots(listSlots());
-      menu.setStatus(`Slot ${slot} cleared.`);
-    };
-    menu.onExport = () => {
-      downloadExperiment(this.captureExperiment());
-      menu.setStatus("Experiment exported as a .json file.");
-    };
-    menu.onImport = (file) => {
-      readExperimentFile(file)
-        .then((raw) => {
-          const result = this.loadExperiment(raw);
-          menu.setStatus(result.message, !result.ok);
-        })
-        .catch((err: unknown) => menu.setStatus(err instanceof Error ? err.message : "Could not read that file.", true));
-    };
-    this.hud.onboarding.onFinished = () => this.updateSettings({ hintsDone: true });
-    menu.setSlots(listSlots());
   }
 
   deleteTarget(): boolean {
@@ -557,7 +570,18 @@ export class App {
     const input = this.input;
     const locked = input.locked;
 
+    this.interp.restore();
     if (input.wasPressed("KeyH")) this.hud.toggleGuide();
+    if (input.wasPressed("Escape")) {
+      if (this.hud.closeGuide()) {
+        /* Esc closed the guide */
+      } else if (this.mode === "edit") {
+        // Edit mode has the pointer free already, so the browser does not turn Esc into a mode change.
+        this.mode = "menu";
+        this.hud.setMode(this.mode);
+        this.hud.menu.setSlots(listSlots());
+      }
+    }
     if (input.wasPressed("Tab")) {
       if (locked) this.enterEditMode();
       else if (this.mode === "edit") input.requestLock();
@@ -580,7 +604,7 @@ export class App {
         jump: input.wasPressed("Space"),
       };
       if (intent.forward !== 0 || intent.strafe !== 0) this.hud.onboarding.complete("move");
-      this.handleActions();
+      handleControls(this);
     }
 
     // The menu is a pause screen: nothing moves while it is open (including before first entry).
@@ -593,7 +617,7 @@ export class App {
     if (this.grab.held) this.grab.setHoldPoint(eye, dir);
     if (this.force.target) this.force.setDirection(dir);
 
-    const simDt = frozen ? 0 : this.world.step(dt);
+    const simDt = frozen ? 0 : this.world.advance(dt);
     this.deformation.update(simDt);
     this.effects.update(this.explosions.waves, frozen || this.world.paused ? 0 : this.world.timeScale);
 
@@ -603,11 +627,13 @@ export class App {
       const fps = this.engine.getFps();
       this.effects.budget = FX_BUDGET[this.quality] * (fps < 25 ? 0.25 : fps < 42 ? 0.5 : 1);
     }
+    if (!frozen) this.updateDynamicResolution(dt);
 
     const active = this.grab.held ?? this.force.target;
     const target = active ?? (locked ? this.pickObject() : null);
     this.hud.setTarget(target ? `${target.kind} · ${formatMass(target.props.mass)}${target.props.isStatic ? " · static" : ""}` : null, active !== null);
     this.hud.setTool(this.tool, this.toolDetail(), TOOLS.indexOf(this.tool));
+    this.interp.apply(this.world.alpha);
     this.fieldVisuals.update();
 
     const selected = this.selection.current;
@@ -631,7 +657,7 @@ export class App {
         objectLimit: CONFIG.limits.maxObjects,
         bodies: this.world.bodyCount,
         backend: this.backend,
-        quality: this.quality,
+        quality: this.dynScale < 1 ? `${this.quality} · ${Math.round(this.dynScale * 100)}%` : this.quality,
         paused: this.world.paused || frozen,
         timeScale: this.world.timeScale,
       },
@@ -640,70 +666,6 @@ export class App {
 
     this.scene.render();
     input.endFrame();
-  }
-
-  private handleActions(): void {
-    const input = this.input;
-    const eye = this.player.eyePosition;
-    const dir = this.player.viewDirection;
-
-    PRIMITIVE_KINDS.forEach((kind, i) => {
-      if (input.wasPressed(`Digit${i + 1}`)) this.selectKind(kind);
-    });
-    if (input.wasPressed("KeyF") && this.spawnSelected()) this.hud.onboarding.complete("spawn");
-    if (input.wasPressed("KeyQ")) {
-      const step = input.isDown("ShiftLeft") || input.isDown("ShiftRight") ? TOOLS.length - 1 : 1;
-      this.setTool(TOOLS[(TOOLS.indexOf(this.tool) + step) % TOOLS.length]);
-      this.sound.click(660);
-      this.hud.onboarding.complete("tool");
-    }
-    if (input.wasPressed("KeyM")) this.cycleMaterial(1);
-    if (input.wasPressed("KeyN")) this.cycleMaterial(-1);
-    if (input.wasPressed("F4")) this.nextEnvironment();
-    if (input.wasPressed("KeyB")) this.setDestructionLevel((this.destruction.level + 1) % CONFIG.destruction.levels.length);
-    if (this.tool === "blast") {
-      if (input.wasPressed("Mouse0")) this.detonateAimed();
-      if (input.wheel !== 0) this.explosions.adjustLevel(-input.wheel);
-    } else if (this.tool === "field") {
-      if (input.wasPressed("Mouse0") && !this.fieldTool.place(eye, dir)) this.hud.toast(this.fieldTool.kind === "water" ? `Water volume limit reached (${CONFIG.water.maxVolumes})` : `Field limit reached (${CONFIG.fields.maxFields})`);
-      if (input.wasPressed("Mouse2")) this.fieldTool.removeAimed(eye, dir);
-      if (input.wheel !== 0) this.fieldTool.cycleKind(input.wheel);
-      if (input.wasPressed("KeyV")) this.fieldTool.cycleStrength();
-    } else if (this.tool === "link") {
-      if (input.wasPressed("Mouse0")) {
-        const r = this.linkTool.click(eye, dir);
-        if (r.status === "joined") this.hud.toast(`${r.joint.kind} joint created`);
-        else if (r.status === "limit") this.hud.toast("Could not create joint");
-        else if (r.status === "none") this.hud.toast("Aim at an object first");
-      }
-      if (input.wasPressed("Mouse2")) {
-        const n = this.linkTool.removeAimed(eye, dir);
-        if (n > 0) this.hud.toast(`Removed ${n} joint${n === 1 ? "" : "s"}`);
-      }
-      if (input.wheel !== 0) this.linkTool.cycleKind(input.wheel);
-    } else if (this.tool === "hand") {
-      if (input.wasPressed("Mouse0") && this.grab.tryGrab(eye, dir)) this.hud.onboarding.complete("grab");
-      if (input.wasReleased("Mouse0")) this.grab.release();
-      if (input.wasPressed("Mouse2")) this.grab.throwOrPush(eye, dir);
-      if (input.wheel !== 0 && this.grab.held) this.grab.adjustDistance(input.wheel);
-    } else {
-      if (input.wasPressed("Mouse0")) this.force.begin(eye, dir);
-      if (input.wasReleased("Mouse0")) this.force.end();
-      if (input.wasPressed("Mouse2")) this.force.strike(eye, dir);
-      if (input.wheel !== 0) this.force.adjustLevel(-input.wheel);
-      if (input.wasPressed("KeyV")) this.force.toggleMode();
-    }
-    if (input.wasPressed("KeyE")) {
-      this.selectTarget();
-      if (this.selection.current) this.hud.onboarding.complete("select");
-    }
-    if (input.wasPressed("KeyC")) this.duplicateSelected();
-    if (input.wasPressed("KeyX") || input.wasPressed("Delete")) this.deleteTarget();
-    if (input.wasPressed("KeyP")) this.togglePause();
-    if (input.wasPressed("BracketLeft")) this.stepTimeScale(-1);
-    if (input.wasPressed("BracketRight")) this.stepTimeScale(1);
-    if (input.wasPressed("KeyR")) this.resetExperiment();
-    if (input.wasPressed("F2")) this.cycleQuality();
   }
 
   private syncCamera(dt: number, sprinting = false): void {
@@ -725,10 +687,49 @@ export class App {
 
   private applyQuality(): void {
     const q = QUALITY[this.quality];
-    const ratio = Math.min(window.devicePixelRatio || 1, q.pixelRatio);
-    this.engine.setHardwareScalingLevel(1 / ratio);
+    this.applyResolution();
     this.lighting.setShadowMapSize(q.shadowMapSize);
     this.pipeline.applyQuality(q);
   }
-}
 
+  /** Sets the render resolution from the quality preset, the display and the dynamic scale. */
+  private applyResolution(): void {
+    const q = QUALITY[this.quality];
+    const cssHeight = this.canvas.clientHeight || window.innerHeight || 720;
+    const native = window.devicePixelRatio || 1; // physical pixels per CSS pixel
+    const perCssPixel = Math.min(native * q.renderScale, q.maxRenderHeight / cssHeight) * this.dynScale;
+    this.engine.setHardwareScalingLevel(1 / perCssPixel);
+  }
+
+  /**
+   * Dynamic resolution: lowers the render scale when the frame rate stays low and raises it
+   * again when there is headroom. A raise that is followed quickly by a drop is not retried
+   * for a while, so the scale does not oscillate.
+   */
+  private updateDynamicResolution(dt: number): void {
+    if (!this.settings.dynamicResolution) return;
+    const D = DYNAMIC_RESOLUTION;
+    const fps = this.engine.getFps();
+    const now = performance.now() / 1000;
+    if (fps < D.lowFps) {
+      this.lowTime += dt;
+      this.highTime = 0;
+    } else if (fps > D.highFps) {
+      this.highTime += dt;
+      this.lowTime = 0;
+    } else {
+      this.lowTime = this.highTime = 0;
+    }
+    if (this.lowTime > D.lowerAfter && this.dynScale > D.minScale) {
+      this.dynScale = Math.max(D.minScale, this.dynScale - D.step);
+      this.lowTime = 0;
+      if (now - this.lastRaiseAt < 10) this.raiseBlockedUntil = now + 30;
+      this.applyResolution();
+    } else if (this.highTime > D.raiseAfter && this.dynScale < 1 && now > this.raiseBlockedUntil) {
+      this.dynScale = Math.min(1, this.dynScale + D.step);
+      this.highTime = 0;
+      this.lastRaiseAt = now;
+      this.applyResolution();
+    }
+  }
+}

@@ -30,6 +30,9 @@ Main / pause menu with environment cards, experiment save slots with file export
 
 Dropped from the plan, with reasons: multi-select (every tool acts on one aimed object; it would need a second interaction model for little gain), snapping and non-vertical world gravity (not requested in the brief; left as documented limitations).
 
+## Assessment fixes (complete)
+An audit after Phase 6 found 21 problems; 18 are fixed (see the dev log). Open: frame rate and WebGPU on the target laptop are still unmeasured, and nobody has listened to the sound.
+
 ## Phase 7 - Optimisation and release
 - Profiling on the target machine (MSI Thin 15: Core i7, RTX 2050, 16 GB), object pooling, LOD, sleeping tuning, adaptive quality, WebGPU as default once verified, final production build.
 

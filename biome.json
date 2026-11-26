@@ -1,0 +1,14 @@
+{
+  "files": { "includes": ["src/**/*.ts", "tests/**/*.ts", "e2e/**/*.mjs"] },
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "style": { "noNonNullAssertion": "off", "useTemplate": "off" },
+      "suspicious": { "noExplicitAny": "off", "noAssignInExpressions": "off" },
+      "complexity": { "noForEach": "off" }
+    }
+  }
+}

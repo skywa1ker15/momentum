@@ -33,8 +33,8 @@ const CONTROLS: Array<[string, Array<[string, string]>]> = [
   ["Field tool", [["LMB", "Place attractor, repulsor, gravity zone or water volume"], ["RMB", "Remove the one aimed at"], ["Scroll", "Change type"], ["V", "Change field strength"]]],
   ["Link tool", [["LMB LMB", "Join an object to another object or to the room"], ["RMB", "Remove joints on target / cancel"], ["Scroll", "Weld, hinge, ball, motor, slider or spring"]]],
   ["Blast tool", [["LMB", "Detonate a charge where you aim"], ["Scroll", "Charge size"]]],
-  ["Simulation", [["P", "Pause / resume"], ["[  ]", "Slower / faster"], ["R", "Reset experiment"], ["F4", "Next environment"], ["B", "Destruction intensity: off, low, normal, high"]]],
-  ["Interface", [["Q", "Next tool (Shift+Q previous)"], ["Tab", "Edit mode: free the mouse to edit properties"], ["H", "Toggle this guide"], ["F2", "Cycle graphics quality"], ["Esc", "Menu: environments, save / load, settings"]]],
+  ["Simulation", [["P", "Pause / resume"], ["[  ]", "Slower / faster"], ["R", "Reset experiment"], ["Z", "Undo the last reset or load"], ["F4", "Next environment"], ["B", "Destruction intensity: off, low, normal, high"]]],
+  ["Interface", [["Q", "Next tool (Shift+Q previous)"], ["Tab", "Edit mode: free the mouse to edit properties"], ["H", "Toggle this guide"], ["U", "Hide / show the interface"], ["F2", "Cycle graphics quality"], ["Esc", "Menu: environments, save / load, settings"]]],
 ];
 
 export type HudMode = "menu" | "play" | "edit";
@@ -117,7 +117,7 @@ export class Hud {
     this.onboarding = new Onboarding(this.root);
 
     this.inspector = new Inspector(this.root, environments);
-    this.editBanner = el("div", "panel edit-banner", "Edit mode &nbsp;·&nbsp; click the viewport or press <kbd>Tab</kbd> to return");
+    this.editBanner = el("div", "panel edit-banner", "Edit mode &nbsp;·&nbsp; click the viewport or press <kbd>Tab</kbd> to return &nbsp;·&nbsp; <kbd>Esc</kbd> menu");
     this.root.appendChild(this.editBanner);
 
     this.toastEl = el("div", "panel toast");
@@ -165,13 +165,31 @@ export class Hud {
 
   /** `detail` is the tool's current setting, e.g. the force magnitude. */
   setTool(name: string, detail: string, index = -1): void {
-    this.toolPills.forEach((pill, i) => pill.classList.toggle("active", i === index));
+    for (const [i, pill] of this.toolPills.entries()) pill.classList.toggle("active", i === index);
     const html = `<kbd>Q</kbd><span class="tool-name">${name}</span>${detail ? `<span class="tool-detail">${detail}</span>` : ""}`;
     if (this.toolChip.innerHTML !== html) this.toolChip.innerHTML = html;
   }
 
   toggleGuide(): void {
     this.guide.classList.toggle("open");
+  }
+
+  /** Closes the control guide. Returns true when it was open. */
+  closeGuide(): boolean {
+    const open = this.guide.classList.contains("open");
+    this.guide.classList.remove("open");
+    return open;
+  }
+
+  /** Hides or shows every panel in play mode (the crosshair stays). */
+  toggleHidden(): void {
+    this.root.classList.toggle("hud-hidden");
+  }
+
+  /** True when keyboard focus is on a control inside a HUD panel. */
+  panelHasFocus(): boolean {
+    const el = document.activeElement;
+    return el instanceof HTMLElement && el !== document.body && this.root.contains(el) && el.matches("input, button, select, textarea");
   }
 
   setSelected(kind: PrimitiveKind): void {

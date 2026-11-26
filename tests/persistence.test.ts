@@ -144,7 +144,9 @@ describe("settings", () => {
   it("sanitises stored values and falls back to defaults", () => {
     expect(sanitizeSettings(null)).toEqual(DEFAULT_SETTINGS);
     expect(sanitizeSettings({ quality: "ultra", sensitivity: 99, fov: 10, invertY: "yes", volume: -3 })).toEqual({ ...DEFAULT_SETTINGS, sensitivity: 3, fov: 55, volume: 0 });
-    expect(sanitizeSettings({ quality: "high", sensitivity: 1.5, fov: 80, invertY: true, volume: 0.25, hintsDone: true })).toEqual({ quality: "high", sensitivity: 1.5, fov: 80, invertY: true, volume: 0.25, hintsDone: true });
+    const full = { quality: "high", sensitivity: 1.5, fov: 80, invertY: true, volume: 0.25, dynamicResolution: false, cameraShake: false, renderer: "webgpu", hintsDone: true };
+    expect(sanitizeSettings(full)).toEqual(full);
+    expect(sanitizeSettings({ renderer: "vulkan" }).renderer).toBe("webgl2");
   });
 });
 

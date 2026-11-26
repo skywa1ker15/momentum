@@ -12,6 +12,9 @@ npm run dev        # development server
 npm test           # headless physics tests (real Havok, no GPU needed)
 npm run build      # typecheck + production build into dist/
 npm run preview    # serve the production build
+npm run lint       # Biome linter
+npm run e2e        # browser smoke test against a running preview (needs Chrome; see e2e/smoke.mjs)
+npm run check      # lint + typecheck + tests + build (what CI runs)
 ```
 
 ## Controls
@@ -37,6 +40,8 @@ npm run preview    # serve the production build
 | Tab | Edit mode: frees the mouse to edit properties and world gravity |
 | P, [ ] | Pause, slower / faster simulation |
 | R | Reset experiment |
+| Z | Undo the last reset, environment load or save load |
+| U | Hide / show the interface |
 | H | Control guide |
 | F2 | Cycle graphics quality |
 
@@ -57,7 +62,7 @@ The menu's Experiments tab has three save slots (stored in the browser) plus exp
 
 ## Renderer
 
-WebGL 2 is the default. Add `?renderer=webgpu` to the URL to use WebGPU (falls back to WebGL 2 automatically). WebGPU is opt-in until it has been verified on real GPU hardware; see the dev log.
+WebGL 2 is the default. Choose WebGPU in Settings (or add `?renderer=webgpu` to the URL); it falls back to WebGL 2 automatically and resets the choice if it fails. WebGPU is opt-in until it has been verified on real GPU hardware; see the dev log.
 
 ## Documentation
 

@@ -13,12 +13,13 @@ export interface EngineHandle {
  * Creates the rendering engine.
  *
  * WebGL 2 is the default because it is the path verified by the automated browser run.
- * `?renderer=webgpu` opts in to WebGPU (falling back to WebGL 2 if unavailable or if
+ * The Renderer setting or `?renderer=webgpu` opts in to WebGPU (falling back to WebGL 2 if unavailable or if
  * initialisation fails). WebGPU becomes the default once it has been verified on real
  * GPU hardware - see docs/DEVLOG.md.
  */
-export async function createEngine(canvas: HTMLCanvasElement): Promise<EngineHandle> {
-  const requested = new URLSearchParams(location.search).get("renderer");
+export async function createEngine(canvas: HTMLCanvasElement, preferred: "webgl2" | "webgpu" = "webgl2"): Promise<EngineHandle> {
+  // The URL parameter overrides the saved setting.
+  const requested = new URLSearchParams(location.search).get("renderer") ?? preferred;
   let fallbackReason: string | undefined;
 
   if (requested === "webgpu" && !("gpu" in navigator)) {

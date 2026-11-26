@@ -112,15 +112,15 @@ export class DestructionSystem {
   private accumulate(obj: SandboxObject, normal: Vector3, signedImpulse: number, point: Vector3 | null, hardness: number): void {
     let entry = this.contacts.get(obj.id);
     if (!entry) {
-      entry = { obj, net: Vector3.Zero(), peak: 0, point, hardness };
+      entry = { obj, net: Vector3.Zero(), peak: 0, point: null, hardness };
       this.contacts.set(obj.id, entry);
     }
-    entry.net.addInPlace(normal.scale(signedImpulse));
+    normal.scaleAndAddToRef(signedImpulse, entry.net);
     entry.hardness = Math.max(entry.hardness, hardness);
     const magnitude = Math.abs(signedImpulse);
     if (magnitude > entry.peak) {
       entry.peak = magnitude;
-      entry.point = point;
+      entry.point = point ? point.clone() : null; // the event object is reused by the engine
     }
   }
 
@@ -215,7 +215,7 @@ export class DestructionSystem {
       return away.scaleInPlace((c.scatter * deltaV) / (dist * (1 + dist / reach)));
     });
     const drift = Vector3.Zero();
-    scatter.forEach((s, i) => drift.addInPlace(s.scale(masses[i])));
+    for (const [i, s] of scatter.entries()) drift.addInPlace(s.scale(masses[i]));
     drift.scaleInPlace(1 / parentMass);
 
     this.factory.remove(obj);

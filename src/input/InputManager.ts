@@ -5,6 +5,8 @@ export class InputManager {
   lookY = 0;
   wheel = 0;
   onLockChange: ((locked: boolean) => void) | null = null;
+  /** While the pointer is free: should Tab be taken as a command (true) or left to move focus (false)? */
+  captureTab: () => boolean = () => false;
 
   private readonly down = new Set<string>();
   private readonly pressed = new Set<string>();
@@ -15,7 +17,8 @@ export class InputManager {
     this.listen(window, "keydown", (e) => {
       if (!this.locked) {
         // Only the global keys work while the pointer is free (start screen, edit mode).
-        if (e.code !== "KeyH" && e.code !== "Tab") return;
+        if (e.code !== "KeyH" && e.code !== "Tab" && e.code !== "Escape") return;
+        if (e.code === "Tab" && !this.captureTab()) return; // native focus navigation
         // Do not steal H from a focused text field.
         if (e.code === "KeyH" && e.target instanceof HTMLInputElement && e.target.type !== "range" && e.target.type !== "checkbox") return;
       }

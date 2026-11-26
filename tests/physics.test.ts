@@ -66,7 +66,7 @@ describe("physics world", () => {
     const top = crates.reduce((a, b) => (a.mesh.position.y > b.mesh.position.y ? a : b));
     const topY = top.mesh.position.y;
     simulate(lab.world, 5);
-    spheres.forEach((s, i) => expect(s.mesh.position.z).toBeGreaterThan(startZ[i] + 5));
+    for (const [i, s] of spheres.entries()) expect(s.mesh.position.z).toBeGreaterThan(startZ[i] + 5);
     expect(top.mesh.position.y).toBeCloseTo(topY, 1);
     lab.dispose();
   });

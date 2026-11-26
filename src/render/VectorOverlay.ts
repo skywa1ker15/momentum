@@ -66,7 +66,10 @@ export class VectorOverlay {
   }
 
   setVelocity(origin: Vector3 | null, velocity?: Vector3): void {
-    if (!origin || !velocity) return this.velocity.hide();
+    if (!origin || !velocity) {
+      this.velocity.hide();
+      return;
+    }
     const v = velocity.scale(VectorOverlay.VELOCITY_SCALE);
     const len = v.length();
     if (len > VectorOverlay.MAX_LENGTH) v.scaleInPlace(VectorOverlay.MAX_LENGTH / len);
@@ -75,7 +78,10 @@ export class VectorOverlay {
 
   /** `fraction` is the force as a 0..1 share of the tool's maximum, used for the arrow length. */
   setForce(point: Vector3 | null, direction?: Vector3, fraction = 1): void {
-    if (!point || !direction) return this.force.hide();
+    if (!point || !direction) {
+      this.force.hide();
+      return;
+    }
     // The arrow ends at the application point, like a push.
     const v = direction.scale(0.6 + 1.9 * fraction);
     this.force.show(point.subtract(v), v);
