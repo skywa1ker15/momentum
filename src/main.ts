@@ -3,6 +3,7 @@ import { loadHavok } from "./physics/loadHavok";
 import { App } from "./core/App";
 import { loadSettings, saveSettings } from "./core/Settings";
 import { showFatalError } from "./ui/Hud";
+import { verifyRendersFrames } from "./render/RendererCheck";
 
 const bootScreen = () => document.getElementById("boot");
 /**
@@ -60,11 +61,37 @@ async function boot(): Promise<void> {
     app.start();
     bootStatus("Ready", 1);
     hideBootScreen();
+    void checkRenderer(backend, app);
   } catch (err) {
     console.error("[MOMENTUM] start-up failed", err);
     revertRenderer();
     bootScreen()?.remove();
     showFatalError(uiRoot, "Unable to start", err instanceof Error ? err.message : String(err));
+  }
+}
+
+/**
+ * Confirms the renderer is actually producing pictures, a little after start-up.
+ *
+ * WebGPU can report success and then present a black screen on some drivers. Rather than
+ * leave WebGPU permanently "experimental" because it could not be verified on every
+ * machine, each machine verifies itself: a good frame here marks WebGPU as working on this
+ * computer, a blank one puts the renderer back to WebGL 2 for the next start.
+ */
+async function checkRenderer(backend: string, app: App): Promise<void> {
+  await new Promise((r) => setTimeout(r, 1500)); // several frames in, well past any first-frame warm-up
+  const verdict = await verifyRendersFrames(app.scene);
+  app.rendererVerdict = verdict;
+  if (backend !== "WebGPU") return;
+  if (verdict === "blank") {
+    revertRenderer();
+    app.hud.toast("WebGPU is not drawing on this machine. Reload to go back to WebGL 2.");
+    console.warn("[MOMENTUM] WebGPU produced a blank frame; reverting to WebGL 2 for the next start.");
+    return;
+  }
+  if (verdict === "ok" && !app.settings.webgpuVerified) {
+    app.updateSettings({ webgpuVerified: true });
+    console.info("[MOMENTUM] WebGPU verified on this machine.");
   }
 }
 

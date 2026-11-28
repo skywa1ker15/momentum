@@ -293,3 +293,62 @@ describe("destruction arena", () => {
     lab.dispose();
   });
 });
+
+describe("destruction under pressure (object budget)", () => {
+  it("survives many objects breaking at once when the budget forces evictions", async () => {
+    const lab = await createLab();
+    // Fill the room with glass well above the floor, so a great many break in the same step
+    // and the debris budget has to evict fragments while other objects are still queued.
+    for (let i = 0; i < 40; i++) {
+      lab.factory.spawn({ kind: "box", material: "glass", position: new Vector3((i % 8) * 0.9 - 3.6, 6 + Math.floor(i / 8) * 0.9, 15 + (i % 3)) });
+    }
+    // This threw before: a queued object could be evicted as debris by an earlier fracture
+    // in the same batch, and then be fractured through a disposed Havok body.
+    expect(() => simulate(lab.world, 4)).not.toThrow();
+    expect(lab.factory.count).toBeLessThanOrEqual(CONFIG.limits.maxObjects);
+    expect(lab.destruction.stats.fractures).toBeGreaterThan(0);
+    // Everything still in the factory must be usable, not a shell around a freed body.
+    for (const o of [...lab.factory.all]) {
+      expect(lab.factory.has(o)).toBe(true);
+      expect(() => o.body.getLinearVelocity()).not.toThrow();
+    }
+    lab.dispose();
+  });
+
+  it("does not fracture an object that another fracture evicted in the same batch", async () => {
+    const lab = await createLab();
+    // CONFIG is read-only to the application; a test may narrow a limit to reach a branch.
+    const limits = CONFIG.limits as { maxObjects: number };
+    const realLimit = limits.maxObjects;
+    try {
+      // Squeeze the object budget so breaking one object has to evict debris to make room.
+      limits.maxObjects = lab.factory.count + 12;
+      const big = lab.factory.spawn({ kind: "box", material: "glass", size: new Vector3(1.4, 1.4, 1.4), position: new Vector3(-2, 1, 15) })!;
+      // Fragments from an earlier break: these are what the budget evicts first.
+      const debris = [];
+      for (let i = 0; i < 8; i++) {
+        debris.push(lab.factory.spawn({ kind: "box", material: "glass", size: new Vector3(0.3, 0.3, 0.3), position: new Vector3(i * 0.4, 1, 17), generation: 1 })!);
+      }
+      // Both the big object and a piece of debris are queued to break in the same batch.
+      lab.destruction.registerImpact(big, big.props.mass * 80, null);
+      for (const d of debris) lab.destruction.registerImpact(d, d.props.mass * 80, null);
+      // Before the fix this threw: the big object's fracture evicted debris that was still
+      // queued, and the queue then fractured it through a freed Havok body.
+      expect(() => lab.destruction.process()).not.toThrow();
+      for (const o of [...lab.factory.all]) expect(() => o.body.getLinearVelocity()).not.toThrow();
+      expect(lab.factory.count).toBeLessThanOrEqual(CONFIG.limits.maxObjects);
+    } finally {
+      limits.maxObjects = realLimit;
+      lab.dispose();
+    }
+  });
+
+  it("ignores a contact recorded for an object that was removed before the step ended", async () => {
+    const lab = await createLab();
+    const a = lab.factory.spawn({ kind: "box", material: "concrete", position: new Vector3(0, 3, 15) })!;
+    simulate(lab.world, 0.9); // let it land and register contacts
+    lab.factory.remove(a);
+    expect(() => lab.destruction.process()).not.toThrow();
+    lab.dispose();
+  });
+});

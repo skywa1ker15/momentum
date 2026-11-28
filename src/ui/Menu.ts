@@ -32,6 +32,7 @@ export class Menu {
   onSettings: ((change: Partial<Settings>) => void) | null = null;
   onShowGuide: (() => void) | null = null;
   onResetHints: (() => void) | null = null;
+  onBenchmark: (() => void) | null = null;
   onUiSound: (() => void) | null = null;
 
   readonly root: HTMLElement;
@@ -229,7 +230,10 @@ export class Menu {
     const hintsRow = el("div", "setting-row");
     hintsRow.append(el("span", "setting-label", "Getting-started checklist"), this.action("Show again", () => this.onResetHints?.()));
     set.appendChild(hintsRow);
-    set.appendChild(el("p", "menu-note", "Settings are saved in this browser. Quality can also be cycled in the lab with F2."));
+    const benchRow = el("div", "setting-row");
+    benchRow.append(el("span", "setting-label", "Performance benchmark"), this.action("Run (about 25 s)", () => this.onBenchmark?.()));
+    set.appendChild(benchRow);
+    set.appendChild(el("p", "menu-note", "The benchmark replaces what is in the laboratory with a fixed sequence and measures the frame rate, then suggests a preset. Settings are saved in this browser; quality can also be cycled in the lab with F2 and the benchmark started with F9."));
 
     nav.appendChild(this.navEnter);
     this.show("home");
@@ -326,7 +330,12 @@ export class Menu {
     this.rendererNote.textContent =
       s.renderer !== this.activeRenderer
         ? "Reload the page to switch renderer. If WebGPU fails to start, the lab falls back to WebGL 2 and resets this choice."
-        : "Dynamic resolution lowers the render resolution when the frame rate drops. WebGPU is experimental and has not yet been verified on real hardware.";
+        : s.webgpuVerified
+          ? "Dynamic resolution lowers the render resolution when the frame rate drops. WebGPU has been checked on this machine and does render; the laboratory watches for a blank frame at every start and falls back if it sees one."
+          : "Dynamic resolution lowers the render resolution when the frame rate drops. WebGPU has not yet rendered a frame on this machine; if it fails the laboratory falls back to WebGL 2 by itself.";
+    // The label follows the evidence rather than staying "experimental" for ever.
+    const webgpuButton = this.rendererButtons.get("webgpu");
+    if (webgpuButton) webgpuButton.textContent = s.webgpuVerified ? "WebGPU" : "WebGPU (unverified here)";
   }
 
   /** Tells the menu which renderer is actually running ("webgl2" or "webgpu"). */

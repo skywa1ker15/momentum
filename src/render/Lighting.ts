@@ -15,6 +15,7 @@ export class Lighting {
   private readonly spots: SpotLight[] = [];
   private shadows: ShadowGenerator;
   private shadowMapSize: number;
+  private shadowRefresh = 1;
 
   constructor(scene: Scene, env: LabEnvironment, shadowMapSize: number) {
     const fill = new HemisphericLight("light-fill", new Vector3(0, 1, 0), scene);
@@ -79,6 +80,21 @@ export class Lighting {
     this.shadows = this.createShadows(casters);
   }
 
+  /**
+   * How often the shadow map is redrawn. 1 is every frame; 2 halves the cost of shadows at
+   * the price of shadows lagging a frame behind fast movement, which is the right trade on
+   * the low preset where frames are scarce.
+   */
+  setShadowRefreshRate(everyNFrames: number): void {
+    this.shadowRefresh = Math.max(1, Math.round(everyNFrames));
+    this.applyRefreshRate();
+  }
+
+  private applyRefreshRate(): void {
+    const map = this.shadows.getShadowMap();
+    if (map) map.refreshRate = this.shadowRefresh - 1;
+  }
+
   private createShadows(casters: AbstractMesh[]): ShadowGenerator {
     const gen = new ShadowGenerator(this.shadowMapSize, this.key);
     gen.usePercentageCloserFiltering = true;
@@ -87,6 +103,10 @@ export class Lighting {
     gen.normalBias = 0.02;
     gen.darkness = 0.15;
     for (const m of casters) gen.addShadowCaster(m, false);
+    // The generator is rebuilt when the environment or the map size changes, so the
+    // refresh rate has to be put back each time rather than set once at start-up.
+    const map = gen.getShadowMap();
+    if (map) map.refreshRate = this.shadowRefresh - 1;
     return gen;
   }
 }

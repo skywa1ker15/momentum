@@ -159,6 +159,7 @@ export class DestructionSystem {
       const impacts = [...this.contacts.values()];
       this.contacts.clear();
       for (const c of impacts) {
+        if (!this.factory.has(c.obj)) continue; // removed since the contact was recorded
         const impulse = c.net.length();
         const deltaV = impulse / c.obj.props.mass;
         this.lastDeltaVs.set(c.obj.id, deltaV);
@@ -169,10 +170,17 @@ export class DestructionSystem {
     if (this.pending.size === 0) return;
     const queue = [...this.pending.values()];
     this.pending.clear();
-    for (const p of queue) this.fracture(p);
+    // Fracturing one object can remove another: the debris budget evicts old fragments to
+    // make room. So each entry is re-checked here rather than trusted from when it was
+    // queued, and the budget avoids evicting anything still waiting in this same batch.
+    const queued = new Set(queue.map((p) => p.obj.id));
+    for (const p of queue) {
+      if (!this.factory.has(p.obj)) continue;
+      this.fracture(p, queued);
+    }
   }
 
-  private fracture({ obj, deltaV, point }: PendingFracture): void {
+  private fracture({ obj, deltaV, point }: PendingFracture, queued: ReadonlySet<number> = new Set()): void {
     const c = CONFIG.destruction;
     const volume = primitiveVolume(obj.kind, obj.size);
     // More pieces for bigger objects, harder hits and higher intensity.
@@ -184,7 +192,7 @@ export class DestructionSystem {
     if (room < pieces) {
       for (const d of this.factory.debris()) {
         if (room >= pieces) break;
-        if (d === obj) continue;
+        if (d === obj || queued.has(d.id)) continue;
         this.factory.remove(d);
         room++;
       }

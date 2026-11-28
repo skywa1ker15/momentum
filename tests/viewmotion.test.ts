@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { ViewMotion } from "../src/player/ViewMotion";
 import { DEFAULT_SETTINGS, sanitizeSettings } from "../src/core/Settings";
-import { QUALITY, QUALITY_ORDER } from "../src/core/config";
+import { QUALITY, QUALITY_ORDER, type QualityLevel } from "../src/core/config";
+import { formatBenchmark, recommendQuality } from "../src/core/Benchmark";
 
 interface RunArgs {
   speed: number;
@@ -140,5 +141,47 @@ describe("settings and quality presets for the new visuals", () => {
       expect(higher.maxRenderHeight).toBeGreaterThanOrEqual(lower.maxRenderHeight);
       expect(higher.renderScale).toBeGreaterThanOrEqual(lower.renderScale);
     }
+  });
+});
+
+describe("benchmark reporting", () => {
+  it("suggests a lower preset when the machine struggles and a higher one when it has room", () => {
+    expect(recommendQuality("high", 22, 14)).toBe("medium");
+    expect(recommendQuality("medium", 30, 20)).toBe("low");
+    expect(recommendQuality("low", 20, 12)).toBe("low"); // nothing below low to fall to
+    expect(recommendQuality("low", 120, 80)).toBe("medium");
+    expect(recommendQuality("medium", 95, 60)).toBe("high");
+    expect(recommendQuality("high", 140, 90)).toBe("high"); // nothing above high
+    // The target band (around 60 with no felt stutter) leaves the preset alone.
+    expect(recommendQuality("medium", 62, 48)).toBe("medium");
+    expect(recommendQuality("high", 58, 46)).toBe("high");
+  });
+
+  it("never recommends a jump of more than one step", () => {
+    const order: QualityLevel[] = ["low", "medium", "high"];
+    for (const ran of order) {
+      for (const [avg, low] of [[5, 2], [45, 30], [1000, 1000]] as const) {
+        const got = recommendQuality(ran, avg, low);
+        expect(Math.abs(order.indexOf(got) - order.indexOf(ran))).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("formats a report that names every stage and the suggestion", () => {
+    const text = formatBenchmark({
+      quality: "medium",
+      renderer: "WebGL 2",
+      renderScale: 1,
+      windowSize: "1920x1080",
+      devicePixelRatio: 1,
+      gpu: "Test GPU",
+      stages: [{ name: "Idle", what: "empty room", avgFps: 60, lowFps: 55, worstFrameMs: 20, frames: 180, bodies: 40 }],
+      overallAvgFps: 60,
+      overallLowFps: 55,
+      recommended: "high",
+    });
+    expect(text).toContain("Idle");
+    expect(text).toContain("Test GPU");
+    expect(text).toContain("suggested preset: high");
   });
 });

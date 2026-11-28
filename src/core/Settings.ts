@@ -15,6 +15,14 @@ export interface Settings {
   cameraShake: boolean;
   /** Head bob, landing dip and strafe roll while walking. Off by default under reduced motion. */
   viewMotion: boolean;
+  /**
+   * Whether WebGPU has been seen to render a real frame on this machine. Set by the
+   * start-up check, never by hand: it is what allows WebGPU to be offered as the default
+   * here without having been verified on every other machine in the world.
+   */
+  webgpuVerified: boolean;
+  /** Set once the first-run performance check has chosen a preset, so it runs only once. */
+  tuned: boolean;
   /** Renderer to use on the next start. WebGPU is experimental and falls back to WebGL 2. */
   renderer: "webgl2" | "webgpu";
   /** Getting-started checklist dismissed or completed. */
@@ -34,6 +42,8 @@ export const DEFAULT_SETTINGS: Settings = {
   dynamicResolution: true,
   cameraShake: !prefersReducedMotion(),
   viewMotion: !prefersReducedMotion(),
+  webgpuVerified: false,
+  tuned: false,
   renderer: "webgl2",
   hintsDone: false,
 };
@@ -56,6 +66,8 @@ export function sanitizeSettings(raw: unknown): Settings {
     dynamicResolution: typeof r.dynamicResolution === "boolean" ? r.dynamicResolution : d.dynamicResolution,
     cameraShake: typeof r.cameraShake === "boolean" ? r.cameraShake : d.cameraShake,
     viewMotion: typeof r.viewMotion === "boolean" ? r.viewMotion : d.viewMotion,
+    webgpuVerified: typeof r.webgpuVerified === "boolean" ? r.webgpuVerified : d.webgpuVerified,
+    tuned: typeof r.tuned === "boolean" ? r.tuned : d.tuned,
     renderer: r.renderer === "webgpu" ? "webgpu" : "webgl2",
     hintsDone: typeof r.hintsDone === "boolean" ? r.hintsDone : d.hintsDone,
   };

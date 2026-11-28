@@ -23,6 +23,7 @@ const menu = app.hud.menu;
     app.updateSettings({ hintsDone: false });
     app.hud.onboarding.start();
   };
+  menu.onBenchmark = () => app.runBenchmark();
   menu.onSave = (slot) => {
     const ok = writeSlot(slot, app.captureExperiment());
     menu.setSlots(listSlots());

@@ -16,8 +16,8 @@ describe("materials", () => {
       const def = MATERIALS[id];
       const o = lab.factory.spawn({ kind: "box", size, material: id, position: new Vector3(-8 + i * 2, 1, 15) })!;
       expect(o.body.getMassProperties().mass).toBeCloseTo(def.density * primitiveVolume("box", size), 1);
-      expect(o.aggregate.shape.material.friction).toBeCloseTo(def.friction, 5);
-      expect(o.aggregate.shape.material.restitution).toBeCloseTo(def.restitution, 5);
+      expect(o.shape.material.friction).toBeCloseTo(def.friction, 5);
+      expect(o.shape.material.restitution).toBeCloseTo(def.restitution, 5);
     });
     expect(MATERIALS.steel.density).toBeGreaterThan(MATERIALS.concrete.density);
     lab.dispose();

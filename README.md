@@ -64,6 +64,10 @@ The menu's Experiments tab has three save slots (stored in the browser) plus exp
 
 The right-hand column is decoration. Switching any of it off changes how the laboratory looks, never what an experiment does: the same experiment run on the low and high presets, or with head movement off, produces the same result.
 
+## Measuring performance
+
+Press **F9**, or use Settings, to run the benchmark: four fixed stages (an empty room, 150 objects settling, a large blast through them, the arena wall broken apart) with the average and 1% low frame rate for each. It suggests a preset, and offers the result as text to copy.
+
 ## Graphics presets
 
 | | Low | Medium | High |
@@ -74,12 +78,15 @@ The right-hand column is decoration. Switching any of it off changes how the lab
 | Grain and lens fringing | off | on | on |
 | Ambient dust and light haze | off | reduced | full |
 | Ambient occlusion, motion blur | off | off | on |
+| Shadow map redraw | every 2nd frame | every frame | every frame |
 
-Ambient occlusion and motion blur are downloaded only when the high preset is used. Dynamic resolution (on by default) lowers the render scale when the frame rate drops, and the atmosphere thins before anything else gives way. Head movement, camera shake and dynamic resolution each have a switch in Settings, and all motion effects default to off when the system asks for reduced motion.
+On a first visit the laboratory watches six seconds of play and drops a preset if the machine cannot hold it; it never raises one by itself. Ambient occlusion and motion blur are downloaded only when the high preset is used. Dynamic resolution (on by default) lowers the render scale when the frame rate drops, and the atmosphere thins before anything else gives way. Head movement, camera shake and dynamic resolution each have a switch in Settings, and all motion effects default to off when the system asks for reduced motion.
 
 ## Renderer
 
-WebGL 2 is the default. Choose WebGPU in Settings (or add `?renderer=webgpu` to the URL); it falls back to WebGL 2 automatically and resets the choice if it fails. WebGPU is opt-in until it has been verified on real GPU hardware; see the dev log.
+WebGL 2 is the default. Choose WebGPU in Settings (or add `?renderer=webgpu` to the URL); it falls back to WebGL 2 automatically and resets the choice if it fails.
+
+Every start checks that the renderer is really drawing, by rendering the scene once into a small off-screen target and reading the pixels back. WebGPU that comes back blank is put back to WebGL 2 for the next start, and WebGPU that renders is recorded as verified on that machine, which is what the Settings panel then says. A renderer is never condemned on a check that could not run.
 
 ## Documentation
 

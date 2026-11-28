@@ -54,6 +54,9 @@ await page.waitForFunction(() => window.__momentum, { timeout: 90000 });
 await sleep(800);
 check("loading screen is removed once started", await app(() => !document.getElementById("boot")));
 await app(() => localStorage.clear());
+// Most checks below assume a settled machine; the first-run preset check is exercised
+// separately at the end, so switch it off here rather than have it change presets midway.
+await app(() => window.__momentum.updateSettings({ tuned: true, quality: "medium" }));
 
 // --- menu: guide on top (M1), keyboard focus (M3)
 await menuButton("Show all controls (H)");
@@ -210,6 +213,27 @@ check("switching environment covers the screen, then fades in", envFade === 1);
 await sleep(1200);
 check("the cover clears after the fade", (await app(() => window.__momentum.hud.fadeOpacity)) === 0);
 
+// --- phase 7: pooling, renderer check, first-run tuning
+const pool = await app(() => {
+  const f = window.__momentum.factory;
+  const before = f.reuseCount;
+  const o = f.spawn({ kind: "box", position: { x: 0, y: 2, z: 0, clone() { return this; } } });
+  return { spawned: o !== null, before };
+});
+check("the factory exposes its pool counters", typeof pool.before === "number");
+const recycled = await app(() => {
+  const f = window.__momentum.factory;
+  const list = [...f.all];
+  const victim = list[list.length - 1];
+  if (!victim) return null;
+  f.remove(victim);
+  const pooled = f.pooledCount;
+  const made = f.spawn({ kind: victim.kind, position: victim.mesh.position });
+  return { pooled, reuses: f.reuseCount, ok: made !== null };
+});
+check("removing an object parks it and the next spawn reuses it", recycled !== null && recycled.pooled > 0 && recycled.reuses > 0, JSON.stringify(recycled));
+check("the renderer passed its own blank-frame check", await app(() => window.__momentum.rendererVerdict !== "blank"), await app(() => String(window.__momentum.rendererVerdict)));
+
 // The high preset adds ambient occlusion and motion blur, both loaded on demand.
 await app(() => window.__momentum.updateSettings({ quality: "high" }));
 await sleep(3500);
@@ -218,6 +242,12 @@ check("the high preset loads ambient occlusion without errors", high.q === "high
 await app(() => window.__momentum.updateSettings({ quality: "medium" }));
 await sleep(1200);
 check("dropping back to medium removes it again", !(await app(() => window.__momentum.scene.postProcessRenderPipelineManager.supportedPipelines.map((p) => p.name).includes("momentum-ssao"))));
+
+// First-run tuning: a machine this slow (software rendering) must be moved down a preset.
+await app(() => window.__momentum.updateSettings({ tuned: false, quality: "high" }));
+await sleep(9000);
+const tuned = await app(() => ({ tuned: window.__momentum.settings.tuned, quality: window.__momentum.quality }));
+check("the first run lowers the preset on a machine that cannot hold it", tuned.tuned === true && tuned.quality !== "high", JSON.stringify(tuned));
 
 check("no console errors or warnings", consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" | "));
 await browser.close();

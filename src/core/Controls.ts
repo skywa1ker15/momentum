@@ -67,4 +67,5 @@ const input = app.input;
   if (input.wasPressed("KeyZ")) app.undo();
   if (input.wasPressed("KeyU")) app.hud.toggleHidden();
   if (input.wasPressed("F2")) app.cycleQuality();
+  if (input.wasPressed("F9")) app.runBenchmark();
 }

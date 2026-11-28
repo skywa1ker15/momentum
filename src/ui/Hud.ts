@@ -3,6 +3,8 @@ import type { PrimitiveKind } from "../objects/ObjectFactory";
 import { Inspector } from "./Inspector";
 import { Menu, type MenuEnvironment } from "./Menu";
 import { Onboarding } from "./Onboarding";
+import { formatBenchmark, type BenchmarkResult } from "../core/Benchmark";
+import { QUALITY_ORDER as ORDER, type QualityLevel } from "../core/config";
 
 export interface HudStats {
   fps: number;
@@ -61,6 +63,7 @@ export class Hud {
   private readonly simPill: HTMLElement;
   private readonly toastEl: HTMLElement;
   private readonly fadeEl: HTMLElement;
+  private readonly benchProgress: HTMLElement;
   private readonly slotMarker: HTMLElement;
   private readonly toolChip: HTMLElement;
   private readonly materialChip: HTMLElement;
@@ -131,6 +134,9 @@ export class Hud {
 
     this.fadeEl = el("div", "screen-fade");
     this.root.appendChild(this.fadeEl);
+
+    this.benchProgress = el("div", "panel bench-progress");
+    this.root.appendChild(this.benchProgress);
 
     this.guide = el("div", "panel guide");
     this.guide.setAttribute("role", "dialog");
@@ -249,6 +255,98 @@ export class Hud {
   /** Opacity of the transition cover, 0 .. 1. For tests. */
   get fadeOpacity(): number {
     return Number(this.fadeEl.style.opacity || "0");
+  }
+
+  /** Shows how far through a benchmark run we are; null hides the readout. */
+  setBenchmarkProgress(text: string | null): void {
+    this.benchProgress.classList.toggle("visible", text !== null);
+    if (text) this.benchProgress.textContent = `Benchmark · ${text}`;
+  }
+
+  /**
+   * Shows the finished benchmark: a row per stage, the plain-text version ready to copy,
+   * and a button to take the suggested preset.
+   */
+  showBenchmark(result: BenchmarkResult, onApply: (q: QualityLevel) => void): void {
+    this.setBenchmarkProgress(null);
+    const wrap = el("div", "overlay bench-overlay");
+    const card = el("div", "panel bench-card");
+    card.append(el("div", "start-eyebrow", "Benchmark"), el("h2", undefined, "Performance on this machine"));
+
+    const table = el("table", "bench-table");
+    const head = el("tr");
+    for (const h of ["Stage", "What it measures", "Average", "1% low", "Worst frame"]) head.appendChild(el("th", undefined, h));
+    table.appendChild(head);
+    for (const s of result.stages) {
+      const row = el("tr");
+      // Amber below 50 and red below 30: the thresholds where a person starts to feel it.
+      const cls = (v: number) => (v < 30 ? "bad" : v < 50 ? "warn" : "good");
+      row.append(
+        el("td", undefined, s.name),
+        el("td", "bench-what", s.what),
+        el("td", `num ${cls(s.avgFps)}`, `${s.avgFps.toFixed(0)} fps`),
+        el("td", `num ${cls(s.lowFps)}`, `${s.lowFps.toFixed(0)} fps`),
+        el("td", "num", `${s.worstFrameMs.toFixed(0)} ms`),
+      );
+      table.appendChild(row);
+    }
+    card.appendChild(table);
+
+    const avg = result.overallAvgFps.toFixed(0);
+    const verdict = el("p", "bench-verdict");
+    if (result.recommended !== result.quality) {
+      const better = ORDER.indexOf(result.recommended) > ORDER.indexOf(result.quality);
+      verdict.textContent = `Under load this machine managed ${avg} fps on the ${result.quality} preset. ${better ? "It has room for" : "It would be smoother on"} the ${result.recommended} preset.`;
+    } else if (result.overallAvgFps < 45) {
+      // Nothing lower to fall back to: say so rather than calling this a good fit.
+      verdict.textContent = `Only ${avg} fps under load, and ${result.quality} is already the lowest preset. Try a smaller window, or turn off dynamic resolution's ceiling by lowering the display resolution.`;
+    } else {
+      verdict.textContent = `The ${result.quality} preset suits this machine: ${avg} fps average under load.`;
+    }
+    card.appendChild(verdict);
+
+    const text = formatBenchmark(result);
+    const pre = el("pre", "bench-text");
+    pre.textContent = text;
+    card.appendChild(pre);
+
+    const row = el("div", "menu-inline");
+    if (result.recommended !== result.quality) {
+      const apply = el("button", "chip-button primary", `Switch to ${result.recommended}`);
+      apply.type = "button";
+      apply.addEventListener("click", () => {
+        onApply(result.recommended);
+        apply.textContent = `Now on ${result.recommended}`;
+        apply.disabled = true;
+      });
+      row.appendChild(apply);
+    }
+    const copy = el("button", "chip-button", "Copy results");
+    copy.type = "button";
+    copy.addEventListener("click", () => {
+      void navigator.clipboard?.writeText(text).then(
+        () => {
+          copy.textContent = "Copied";
+        },
+        () => {
+          // No clipboard permission: select the text so it can be copied by hand.
+          const range = document.createRange();
+          range.selectNodeContents(pre);
+          window.getSelection()?.removeAllRanges();
+          window.getSelection()?.addRange(range);
+          copy.textContent = "Selected — press Ctrl+C";
+        },
+      );
+    });
+    const close = el("button", "chip-button", "Close");
+    close.type = "button";
+    close.addEventListener("click", () => wrap.remove());
+    row.append(copy, close);
+    card.appendChild(row);
+
+    wrap.appendChild(card);
+    this.root.appendChild(wrap);
+    close.focus();
   }
 
   toast(message: string): void {

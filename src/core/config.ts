@@ -21,6 +21,10 @@ export const CONFIG = {
     worldCeiling: 90,
     /** Objects smaller than this volume (m^3) do not cast shadows. */
     shadowMinVolume: 0.004,
+    /** Parked mesh/body pairs kept per shape+material, ready to be reused. */
+    poolPerKind: 40,
+    /** Parked pairs kept in total. Each costs a little memory and nothing per frame. */
+    poolTotal: 220,
   },
   player: {
     capsuleHeight: 1.8,
@@ -167,6 +171,8 @@ export interface QualitySettings {
   msaaSamples: number;
   bloom: boolean;
   glow: boolean;
+  /** Frames between shadow-map redraws. 1 = every frame. */
+  shadowRefresh: number;
   /** Film grain and lens fringing: two extra full-screen passes. Off on low. */
   filmic: boolean;
   /** Screen-space ambient occlusion: contact shadows where surfaces meet. Costs a depth pass. */
@@ -180,9 +186,9 @@ export interface QualitySettings {
  * Dynamic resolution (see App) lowers the render scale further when the frame rate drops.
  */
 export const QUALITY: Record<QualityLevel, QualitySettings> = {
-  low: { renderScale: 0.7, maxRenderHeight: 900, shadowMapSize: 1024, msaaSamples: 1, bloom: false, glow: false, filmic: false, ssao: false, motionBlur: false },
-  medium: { renderScale: 1, maxRenderHeight: 1080, shadowMapSize: 2048, msaaSamples: 1, bloom: true, glow: true, filmic: true, ssao: false, motionBlur: false },
-  high: { renderScale: 1, maxRenderHeight: 1440, shadowMapSize: 4096, msaaSamples: 2, bloom: true, glow: true, filmic: true, ssao: true, motionBlur: true },
+  low: { renderScale: 0.7, maxRenderHeight: 900, shadowMapSize: 1024, msaaSamples: 1, bloom: false, glow: false, shadowRefresh: 2, filmic: false, ssao: false, motionBlur: false },
+  medium: { renderScale: 1, maxRenderHeight: 1080, shadowMapSize: 2048, msaaSamples: 1, bloom: true, glow: true, shadowRefresh: 1, filmic: true, ssao: false, motionBlur: false },
+  high: { renderScale: 1, maxRenderHeight: 1440, shadowMapSize: 4096, msaaSamples: 2, bloom: true, glow: true, shadowRefresh: 1, filmic: true, ssao: true, motionBlur: true },
 };
 
 export const DYNAMIC_RESOLUTION = {

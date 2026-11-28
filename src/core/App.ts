@@ -35,6 +35,7 @@ import { MATERIALS, MATERIAL_ORDER, DEFAULT_MATERIAL, type MaterialId } from "..
 import { ObjectFactory, PRIMITIVE_KINDS, type PrimitiveKind, type SandboxObject } from "../objects/ObjectFactory";
 import { PlayerController, type MoveIntent } from "../player/PlayerController";
 import { ViewMotion } from "../player/ViewMotion";
+import { Benchmark, type BenchmarkHost, type BenchmarkResult } from "./Benchmark";
 import { InputManager } from "../input/InputManager";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { GrabTool } from "../tools/GrabTool";
@@ -51,6 +52,8 @@ export const TOOLS: readonly ToolId[] = ["hand", "force", "field", "link", "blas
 const FX_BUDGET: Record<QualityLevel, number> = { low: 0.4, medium: 0.75, high: 1 };
 /** Ambient dust and light-haze density per graphics quality. Off on low. */
 const ATMOSPHERE: Record<QualityLevel, number> = { low: 0, medium: 0.65, high: 1 };
+/** Seconds of play the first-run preset check watches before deciding. */
+const FIRST_RUN_SECONDS = 6;
 
 const IDLE: MoveIntent = { forward: 0, strafe: 0, sprint: false, jump: false };
 
@@ -104,6 +107,8 @@ export class App {
   private shake = 0;
   /** Head bob, landing dip and strafe roll. Visual only. */
   readonly viewMotion = new ViewMotion();
+  /** Fixed performance run, for measuring this machine. */
+  readonly benchmark: Benchmark;
   private frame = 0;
   private baseFov = (this.settings.fov * Math.PI) / 180;
   private everEntered = false;
@@ -133,6 +138,7 @@ export class App {
 
     this.lighting = new Lighting(this.scene, this.environment, QUALITY[this.quality].shadowMapSize);
     this.atmosphere = new Atmosphere(this.scene, this.environment, this.lighting);
+    this.benchmark = new Benchmark(this.benchmarkHost());
     this.pipeline = new RenderPipeline(this.scene, this.camera);
     this.pipeline.bakeReflections(this.environment);
 
@@ -247,6 +253,91 @@ export class App {
 
   start(): void {
     this.engine.runRenderLoop(() => this.tick());
+  }
+
+  /** The slice of the application the benchmark drives. */
+  private benchmarkHost(): BenchmarkHost {
+    // eslint-disable-line -- a plain object keeps the benchmark independent of App's full surface
+    const app = this;
+    return {
+      get quality() {
+        return app.quality;
+      },
+      set quality(q) {
+        app.updateSettings({ quality: q });
+      },
+      get rendererName() {
+        return app.backend === "WebGPU" ? "WebGPU" : "WebGL 2";
+      },
+      get bodyCount() {
+        return app.world.bodyCount;
+      },
+      get renderScale() {
+        return app.engine.getHardwareScalingLevel() > 0 ? 1 / app.engine.getHardwareScalingLevel() : 1;
+      },
+      loadEnvironment: (id) => app.loadEnvironment(id),
+      spawnProbe: (position) => app.factory.spawn({ kind: "box", position, material: "wood" }) !== null,
+      detonateAt: (point, level) => {
+        app.explosions.detonate(point, level);
+      },
+    };
+  }
+
+  /**
+   * Runs the fixed performance sequence and shows the result. The run drives the scene
+   * itself, so it replaces whatever is in the laboratory; the person is warned first.
+   */
+  runBenchmark(): void {
+    if (this.benchmark.running) return;
+    this.mode = "play";
+    this.hud.setMode(this.mode);
+    this.hud.menu.setVisible(false);
+    this.hud.toast(`Benchmark running, about ${Math.round(Benchmark.duration)} s. Leave it alone.`);
+    // Dynamic resolution would change the picture mid-run and make the numbers meaningless.
+    const restoreDynamic = this.settings.dynamicResolution;
+    this.settings.dynamicResolution = false;
+    this.applyResolution();
+    this.benchmark.start((result) => {
+      this.settings.dynamicResolution = restoreDynamic;
+      this.applyResolution();
+      this.lastBenchmark = result;
+      this.hud.showBenchmark(result, (quality) => this.updateSettings({ quality }));
+    });
+  }
+
+  /** The most recent run, for the menu to show again. */
+  lastBenchmark: BenchmarkResult | null = null;
+  /** Result of the start-up check that the renderer is drawing real frames. */
+  rendererVerdict: "ok" | "blank" | "unavailable" | "pending" = "pending";
+
+  /** Accumulates the first seconds of play, for the one-off preset check. */
+  private tuning: { seconds: number; frames: number } | null = null;
+
+  /**
+   * Picks a preset on the first visit by watching the first few seconds of real play.
+   *
+   * This is deliberately one-directional: a machine that cannot hold the preset is moved
+   * down at once, because stutter is the worst first impression. A machine with room to
+   * spare is told about the benchmark rather than being pushed up, since a few seconds of
+   * an empty room says nothing about how it copes with a wall coming apart.
+   */
+  private updateFirstRunTuning(): void {
+    if (this.settings.tuned || this.mode === "menu" || this.benchmark.running) return;
+    const t = (this.tuning ??= { seconds: 0, frames: 0 });
+    // Real wall time, not the simulation delta: that one is clamped to 0.1 s so a long
+    // frame cannot destabilise the physics, which would flatter a machine dropping frames.
+    t.seconds += this.engine.getDeltaTime() / 1000;
+    t.frames++;
+    if (t.seconds < FIRST_RUN_SECONDS) return;
+    const fps = t.frames / t.seconds;
+    this.updateSettings({ tuned: true });
+    if (fps < 38 && this.quality !== "low") {
+      const lower = QUALITY_ORDER[Math.max(0, QUALITY_ORDER.indexOf(this.quality) - 1)];
+      this.updateSettings({ quality: lower });
+      this.hud.toast(`${fps.toFixed(0)} fps on ${this.quality === lower ? "this preset" : "medium"} — switched to ${lower}. Change it in Settings.`);
+    } else if (fps > 90 && this.quality !== "high") {
+      this.hud.toast(`Running at ${fps.toFixed(0)} fps. Try the benchmark in Settings to see if high suits this machine.`);
+    }
   }
 
   // --- actions (also used by automated tests) --------------------------------
@@ -636,6 +727,11 @@ export class App {
     if (this.grab.held) this.grab.setHoldPoint(eye, dir);
     if (this.force.target) this.force.setDirection(dir);
 
+    if (this.benchmark.running) {
+      this.benchmark.update(this.engine.getDeltaTime());
+      this.hud.setBenchmarkProgress(this.benchmark.progress);
+    }
+
     const simDt = frozen ? 0 : this.world.advance(dt);
     this.atmosphere.update(frozen ? 0 : dt, this.camera.position);
     this.deformation.update(simDt);
@@ -651,6 +747,7 @@ export class App {
       this.atmosphere.setDensity(ATMOSPHERE[this.quality] * headroom);
     }
     if (!frozen) this.updateDynamicResolution(dt);
+    if (!frozen) this.updateFirstRunTuning();
 
     const active = this.grab.held ?? this.force.target;
     const target = active ?? (locked ? this.pickObject() : null);
@@ -678,7 +775,8 @@ export class App {
         particles: this.effects.activeParticles,
         fractures: this.destruction.stats.fractures,
         objectLimit: CONFIG.limits.maxObjects,
-        bodies: this.world.bodyCount,
+        // Parked bodies are inert and far below the world: they are not part of the experiment.
+        bodies: this.world.bodyCount - this.factory.pooledCount,
         backend: this.backend,
         quality: this.dynScale < 1 ? `${this.quality} · ${Math.round(this.dynScale * 100)}%` : this.quality,
         paused: this.world.paused || frozen,
@@ -737,6 +835,7 @@ export class App {
     this.applyResolution();
     this.atmosphere.setDensity(ATMOSPHERE[this.quality]);
     this.lighting.setShadowMapSize(q.shadowMapSize);
+    this.lighting.setShadowRefreshRate(q.shadowRefresh);
     this.pipeline.applyQuality(q);
   }
 

@@ -1,0 +1,16 @@
+import puppeteer from "puppeteer-core";
+const b = await puppeteer.launch({ executablePath: "/usr/bin/google-chrome", headless: "new", args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"], defaultViewport: { width: 1024, height: 600 } });
+const p = await b.newPage();
+const errs = [];
+p.on("console", (m) => { if (["error", "warning"].includes(m.type())) errs.push(m.text().slice(0, 140)); });
+p.on("pageerror", (e) => errs.push("pageerror " + (e.stack || e.message).split("\n").slice(0, 4).join(" | ")));
+await p.goto("http://localhost:4173/?debug", { waitUntil: "domcontentloaded" });
+await p.waitForFunction(() => window.__momentum, { timeout: 90000 });
+await new Promise((r) => setTimeout(r, 800));
+await p.evaluate(() => { const a = window.__momentum; a.updateSettings({ quality: "low" }); a.runBenchmark(); });
+const ok = await p.waitForFunction(() => document.querySelector(".bench-card") !== null, { timeout: 420000 }).then(() => true).catch(() => false);
+console.log("finished:", ok);
+if (ok) console.log(await p.evaluate(() => document.querySelector(".bench-text").textContent));
+console.log("errors:", JSON.stringify(errs.slice(0, 4)));
+await p.screenshot({ path: "/tmp/shots/bench.png" });
+await b.close();

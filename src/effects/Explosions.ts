@@ -73,7 +73,8 @@ export class ExplosionSystem {
   /** Starts a blast at `center`. Returns null when too many are already in progress. */
   detonate(center: Vector3, level: number = this.level): BlastWave | null {
     if (this.waves.length >= CONFIG.explosion.maxActiveWaves) return null;
-    const [, strength, radius] = CONFIG.explosion.levels[level];
+    const levels = CONFIG.explosion.levels;
+    const [, strength, radius] = levels[Math.min(levels.length - 1, Math.max(0, Math.round(level)))];
     const wave: BlastWave = { center: center.clone(), strength, radius, startTime: this.world.simTime, front: 0, reached: new Set() };
     this.waves.push(wave);
     this.onDetonate?.(wave);

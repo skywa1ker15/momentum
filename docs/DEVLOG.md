@@ -249,3 +249,38 @@ Two bugs came out of this pass, both caught by the browser test: `position: rela
 Tests: 11 new unit tests (`tests/viewmotion.test.ts`), 7 new browser checks. 104 unit tests and 35 browser checks pass.
 
 Not measured: real frame rates. The test browser is software-rendered at ~3 FPS, so the presets remain estimates.
+
+## Phase 7 - Optimisation and release
+
+**Benchmark first.** Nothing here was optimised on a hunch. `src/core/Benchmark.ts` runs four stages (idle, 150 objects settling, a large blast through them, the arena wall broken three times), records every frame, and reports the average and the 1% low per stage with a suggested preset and a copyable text block. It is driven from the application's own tick, so it measures the real loop. F9, or Settings.
+
+**Where the time goes.** Measured in Node with real Havok:
+
+| | cost |
+| --- | --- |
+| spawn + remove one object | 0.166 ms |
+| mesh instance alone | 0.038 ms |
+| body + shape alone | 0.118 ms |
+| reusing a parked body, new shape | 0.028 ms |
+| physics step, 200 bodies settling | 2.47 ms |
+| physics step, 200 bodies asleep | 0.10 ms |
+
+Two things follow. Sleeping already works (25x cheaper once settled), so there was nothing to tune. And object creation is worth attacking: a wall breaking into forty fragments costs about 6.6 ms, a third of a 60 FPS frame, at the exact moment the blast is also working.
+
+**Pooling.** A pool only helps if it can serve the case that hurts, and fragments are all different sizes, so a pool keyed by size would almost never hit. What makes it work is that the expensive parts - the mesh instance and the Havok body - do not depend on size; only the collision shape does. So removing an object now parks its mesh and body (static, disabled, far below the world) and the next spawn of that shape and material takes the pair and gives it a fresh exact shape. Measured: 0.061 ms per spawn/remove cycle instead of 0.166, and the 40-fragment burst from about 6.6 ms to 2.8 ms.
+
+Recycling a body is where the bugs hide, so fresh and recycled objects take the same code path, every piece of body state is written explicitly rather than only the parts that changed, and a test drops an identical box in two identical worlds - one with a new body, one with a thoroughly dirtied recycled one - and requires the two to agree to five decimal places on position and speed. That test caught a real one: Havok keeps its own copy of a body's transform and writes it back to the mesh each step, so a recycled body carried on from wherever it had been parked. Moving the mesh is not enough; the transform has to be pushed into the engine with a teleport prestep.
+
+**Level of detail.** Spheres and cylinders now have coarser copies at 14 m and 30 m (half and about a quarter of the segments). Instances inherit their source mesh's levels, so one set serves every object of that shape and material. Boxes are twelve triangles and get none.
+
+**Cheaper low preset.** Shadows redraw every other frame, and film grain and lens fringing are off. Both were running at every preset before, including the one meant for weak hardware.
+
+**Choosing a preset.** On a first visit the laboratory watches six seconds of real play and drops a preset if the machine is under about 38 FPS. It never raises one by itself - a quiet room says nothing about a wall coming apart - but it does point at the benchmark. The measurement uses wall time, not the simulation delta, which is clamped at 0.1 s and would have flattered a machine dropping frames.
+
+**Verifying the renderer.** WebGPU can initialise, report success and then present nothing. Rather than leave it marked experimental for ever because it could not be verified on every machine, each machine now verifies itself: a second after start-up the scene is drawn once into a small off-screen target and the pixels are read. Blank means WebGPU is not working here, so the setting goes back to WebGL 2; a real image marks WebGPU verified on this machine and the Settings panel stops calling it unverified. The first version read the canvas back buffer and reported blank on a renderer that was demonstrably working - a presented canvas often reads back black - which would have condemned a healthy renderer. An off-screen target is owned by us until we read it.
+
+**A crash the benchmark found.** The first run of the Destruction stage threw: `Cannot read properties of null (reading 'hpBodyId')`. When several objects break in one step, fracturing the first can evict a later one as debris to stay inside the object budget, and the queue then fractured it through a freed Havok body. It needed heavy, repeated destruction to show up, which is exactly what the benchmark does. Objects are now re-checked before being fractured and the budget never evicts anything still queued, with a test that reproduces the crash.
+
+Tests: 115 unit (11 new), 38 browser checks (5 new).
+
+Not done: frame rates on the target laptop. Everything here was measured in Node with real Havok or in a software-rendered browser at about 8 FPS.
